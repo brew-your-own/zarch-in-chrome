@@ -54,8 +54,9 @@ export class MouseInput {
   }
 
   requestLock(): void {
-    // Browsers refuse a re-lock right after Esc; the player can just click again.
-    this.target.requestPointerLock().catch(() => {});
+    // Browsers can refuse the lock (e.g. right after Esc). Report it as unlocked so the
+    // caller puts its pause screen back instead of leaving a frozen game with no UI.
+    this.target.requestPointerLock().catch(() => this.onLockChange(false));
   }
 
   snapshot(): CraftInput {

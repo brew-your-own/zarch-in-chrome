@@ -41,6 +41,7 @@ const ENEMY_SLIDERS: SliderSpec<Settings['enemies']>[] = [
   { key: 'seederSpeed', label: 'Seeder speed', min: 0.5, max: 8, step: 0.1, unit: 'u/s' },
   { key: 'sporeInterval', label: 'Spore interval', min: 0.3, max: 6, step: 0.1, unit: 's' },
   { key: 'virusSpread', label: 'Virus spread', min: 0, max: 20, step: 0.5, unit: '%/s', scale: 100 },
+  { key: 'overrunAt', label: 'Game over at', min: 10, max: 100, step: 5, unit: '% land', scale: 100 },
 ];
 
 const PLUME_SLIDERS: SliderSpec<Settings['plume']>[] = [

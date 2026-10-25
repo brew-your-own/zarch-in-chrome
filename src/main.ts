@@ -12,9 +12,10 @@ import { TreeView } from './render/treeView';
 import { loadSettings, saveSettings } from './settings';
 import { createCannon, stepCannon } from './sim/cannon';
 import { spawnCraft, stepCraft } from './sim/craft';
-import { createEnemies, stepEnemies } from './sim/enemies';
+import { createEnemies, isOverrun, stepEnemies } from './sim/enemies';
 import { buildMap, findMap } from './sim/maps';
 import type { Terrain } from './sim/terrain';
+import { GameOverScreen, recordScore, type GameOverStats } from './ui/gameOver';
 import { Hud } from './ui/hud';
 import { Scanner } from './ui/scanner';
 import { SettingsPanel } from './ui/settingsPanel';
@@ -99,36 +100,74 @@ function buildViews() {
 buildViews();
 
 let started = false;
+/** Set when the virus takes over; the sim stays frozen until a new game starts. */
+let gameOver: { stats: GameOverStats; newBest: boolean } | null = null;
+
+const showPanel = () => panel.show(terrain, palette, craft.pos, started && !gameOver, enemies.seeders);
+
 const input = new MouseInput(canvas, (locked) => {
   if (locked) {
     started = true;
     panel.hide();
+    gameOverScreen.hide();
+  } else if (gameOver) {
+    gameOverScreen.show(gameOver.stats, gameOver.newBest);
   } else {
-    panel.show(terrain, palette, craft.pos, started, enemies.seeders);
+    showPanel();
   }
 });
 
+/** Fresh world on `mapId`: terrain (trees regrown, no infection), craft, cannon and enemies. */
+function newGame(mapId: string) {
+  terrain = buildMap(findMap(mapId));
+  Object.assign(craft, spawnCraft(terrain, physics));
+  Object.assign(cannon, createCannon());
+  Object.assign(enemies, newEnemies());
+  buildViews();
+  resetMotion();
+  gameOver = null;
+}
+
+function endGame() {
+  const stats = { score: enemies.score, wave: enemies.wave, infected: terrain.infectedFraction() };
+  gameOver = { stats, newBest: recordScore(stats.score) };
+  gameOverScreen.show(gameOver.stats, gameOver.newBest);
+  document.exitPointerLock();
+}
+
 const panel = new SettingsPanel(overlay, settings, {
-  onFly: () => input.requestLock(),
+  onFly: () => {
+    if (gameOver) newGame(settings.mapId);
+    input.requestLock();
+  },
   onChange: () => saveSettings(settings),
   onMapChange: (mapId) => {
     settings.mapId = mapId;
     saveSettings(settings);
-    terrain = buildMap(findMap(mapId));
-    Object.assign(craft, spawnCraft(terrain, physics));
-    Object.assign(cannon, createCannon());
-    Object.assign(enemies, newEnemies());
-    buildViews();
-    resetMotion();
-    panel.show(terrain, palette, craft.pos, started, enemies.seeders);
+    newGame(mapId);
+    showPanel();
   },
 });
-panel.show(terrain, palette, craft.pos, started, enemies.seeders);
+
+const gameOverScreen = new GameOverScreen(document.querySelector<HTMLDivElement>('#gameover')!, {
+  onPlayAgain: () => {
+    newGame(settings.mapId);
+    gameOverScreen.hide();
+    input.requestLock();
+  },
+  onSettings: () => {
+    gameOverScreen.hide();
+    showPanel();
+  },
+});
+showPanel();
 
 // Dev-only handle for poking at the game from the console or browser automation.
 // Setting `zarch.input.locked = true` runs the simulation without pointer lock.
 if (import.meta.env.DEV) {
-  Object.assign(window, { zarch: { craft, cannon, enemies, input, settings, get terrain() { return terrain; } } });
+  Object.assign(window, {
+    zarch: { craft, cannon, enemies, input, settings, get terrain() { return terrain; }, get gameOver() { return gameOver; } },
+  });
 }
 
 function resize() {
@@ -156,9 +195,9 @@ function frame(now: number) {
   const elapsed = Math.min(MAX_FRAME, (now - last) / 1000);
   last = now;
 
-  if (input.locked) {
+  if (input.locked && !gameOver) {
     accumulator += elapsed;
-    while (accumulator >= STEP) {
+    while (accumulator >= STEP && !gameOver) {
       Object.assign(prevPos, craft.pos);
       // Mouse movement is ignored while landed, so every liftoff starts from a centred aim.
       if (craft.status === 'landed') input.centre();
@@ -183,6 +222,7 @@ function frame(now: number) {
         effectsView.explode(craftView.craft.geometry, craftView.craft.matrixWorld, craft.vel);
       }
       accumulator -= STEP;
+      if (isOverrun(terrain, settings.enemies)) endGame();
     }
   }
 
@@ -205,7 +245,7 @@ function frame(now: number) {
   effectsView.update(effectsDt, physics.gravity);
   renderer.render(scene, camera);
 
-  hud.update(craft, physics, enemies, terrain, effectsDt);
+  hud.update(craft, physics, enemies, settings.enemies, terrain, effectsDt);
   scanner.update(terrain, palette, craft, enemies, elapsed);
 
   requestAnimationFrame(frame);

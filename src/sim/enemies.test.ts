@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Bullet } from './cannon';
 import { DEFAULT_PHYSICS as P, spawnCraft } from './craft';
-import { createEnemies, DEFAULT_ENEMIES, SEEDER_CRUISE, SEEDER_POINTS, stepEnemies, type EnemyEvent } from './enemies';
+import { createEnemies, DEFAULT_ENEMIES, isOverrun, SEEDER_CRUISE, SEEDER_POINTS, stepEnemies, type EnemyEvent } from './enemies';
 import { Terrain } from './terrain';
 
 const DT = 1 / 60;
@@ -99,5 +99,16 @@ describe('enemies', () => {
     run(5, t, enemies);
     expect(enemies.wave).toBe(2);
     expect(enemies.seeders).toHaveLength(DEFAULT_ENEMIES.firstWave + 1);
+  });
+
+  it('is overrun once the virus covers the configured share of land', () => {
+    const t = world();
+    const settings = { ...DEFAULT_ENEMIES, overrunAt: 0.25 };
+    expect(isOverrun(t, settings)).toBe(false);
+    for (let j = 0; j < t.size && t.infectedFraction() < 0.25; j++) {
+      for (let i = 0; i < t.size && t.infectedFraction() < 0.25; i++) t.infect(i, j);
+    }
+    expect(isOverrun(t, settings)).toBe(true);
+    expect(isOverrun(t, { ...settings, overrunAt: 0.5 })).toBe(false);
   });
 });

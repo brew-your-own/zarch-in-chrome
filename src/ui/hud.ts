@@ -1,9 +1,11 @@
 import type { CraftState, Physics } from '../sim/craft';
-import type { EnemyState } from '../sim/enemies';
+import type { EnemySettings, EnemyState } from '../sim/enemies';
 import type { Terrain } from '../sim/terrain';
 
 /** Fuel share below which the bar turns red and warns. */
 export const LOW_FUEL = 0.25;
+/** The virus readout turns red past this share of the game-over threshold. */
+const VIRUS_WARNING = 0.75;
 /** How long the "WAVE n" banner stays up (s). */
 const BANNER_TIME = 2.5;
 
@@ -58,7 +60,14 @@ export class Hud {
     this.banner = el('div', 'wave-banner', bannerParent);
   }
 
-  update(craft: CraftState, physics: Physics, enemies: EnemyState, terrain: Terrain, dt: number): void {
+  update(
+    craft: CraftState,
+    physics: Physics,
+    enemies: EnemyState,
+    rules: EnemySettings,
+    terrain: Terrain,
+    dt: number,
+  ): void {
     const fuel = Math.max(0, Math.min(1, craft.fuel / physics.maxFuel));
     const low = fuel < LOW_FUEL;
     this.fuelFill.style.width = `${fuel * 100}%`;
@@ -69,9 +78,9 @@ export class Hud {
     const speed = craft.status === 'crashed' ? 0 : Math.hypot(craft.vel.x, craft.vel.y, craft.vel.z);
     this.flight.textContent = `ALT ${(craft.pos.y - ground).toFixed(1).padStart(5)}   SPEED ${speed.toFixed(1).padStart(4)}`;
     this.game.textContent = `SCORE ${enemies.score}   WAVE ${enemies.wave} (${enemies.seeders.length} left)`;
-    const infected = terrain.infectedFraction() * 100;
-    this.virus.textContent = `VIRUS ${infected.toFixed(1)}%`;
-    this.virus.classList.toggle('alert', infected >= 10);
+    const infected = terrain.infectedFraction();
+    this.virus.textContent = `VIRUS ${(infected * 100).toFixed(1)}% / ${Math.round(rules.overrunAt * 100)}%`;
+    this.virus.classList.toggle('alert', infected >= rules.overrunAt * VIRUS_WARNING);
 
     const { angle, distance } = padBearing(terrain, craft.pos);
     const onPad = terrain.tileTypeAt(craft.pos.x, craft.pos.z) === 'pad';

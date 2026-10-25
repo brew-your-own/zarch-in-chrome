@@ -14,6 +14,8 @@ export interface EnemySettings {
   sporeInterval: number;
   /** Chance per second that an infected tile infects a neighbour. */
   virusSpread: number;
+  /** Share of the land (0-1) the virus must infect to end the game. */
+  overrunAt: number;
 }
 
 export const DEFAULT_ENEMIES: Readonly<EnemySettings> = Object.freeze({
@@ -21,7 +23,13 @@ export const DEFAULT_ENEMIES: Readonly<EnemySettings> = Object.freeze({
   seederSpeed: 2.5,
   sporeInterval: 1.5,
   virusSpread: 0.02,
+  overrunAt: 0.6,
 });
+
+/** Whether the virus has taken over enough land to end the game. */
+export function isOverrun(terrain: Terrain, settings: EnemySettings): boolean {
+  return terrain.infectedFraction() >= settings.overrunAt;
+}
 
 /** Height seeders keep above the ground under and just ahead of them. */
 export const SEEDER_CRUISE = 2.5;
