@@ -1,0 +1,63 @@
+import type { CraftInput } from './sim/craft';
+
+/** Mouse travel (pixels) from the centre to full tilt. */
+const FULL_TILT_PIXELS = 250;
+
+/**
+ * Pointer-locked mouse. The pointer is hidden and its movement drives a
+ * virtual cursor inside the unit disk, standing in for the mouse position
+ * relative to the screen centre in the original game.
+ * Left button: thrust. Right button: fire (not used yet).
+ */
+export class MouseInput {
+  aimX = 0;
+  aimY = 0;
+  thrust = false;
+  fire = false;
+  locked = false;
+
+  constructor(
+    private readonly target: HTMLElement,
+    private readonly onLockChange: (locked: boolean) => void,
+  ) {
+    document.addEventListener('pointerlockchange', () => {
+      this.locked = document.pointerLockElement === target;
+      if (!this.locked) this.thrust = this.fire = false;
+      this.onLockChange(this.locked);
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!this.locked) return;
+      this.aimX += e.movementX / FULL_TILT_PIXELS;
+      this.aimY -= e.movementY / FULL_TILT_PIXELS;
+      const mag = Math.hypot(this.aimX, this.aimY);
+      if (mag > 1) {
+        this.aimX /= mag;
+        this.aimY /= mag;
+      }
+    });
+    document.addEventListener('mousedown', (e) => {
+      if (!this.locked) return;
+      if (e.button === 0) this.thrust = true;
+      if (e.button === 2) this.fire = true;
+    });
+    document.addEventListener('mouseup', (e) => {
+      if (e.button === 0) this.thrust = false;
+      if (e.button === 2) this.fire = false;
+    });
+    document.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  /** Puts the virtual cursor back at the screen centre (no tilt). */
+  centre(): void {
+    this.aimX = 0;
+    this.aimY = 0;
+  }
+
+  requestLock(): void {
+    void this.target.requestPointerLock();
+  }
+
+  snapshot(): CraftInput {
+    return { aimX: this.aimX, aimY: this.aimY, thrust: this.thrust };
+  }
+}
