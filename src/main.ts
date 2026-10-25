@@ -12,6 +12,7 @@ import { SkyView } from './render/skyView';
 import { TerrainView } from './render/terrainView';
 import { TreeView } from './render/treeView';
 import { loadSettings, saveSettings } from './settings';
+import { createAutopilot, stepAutopilot, toggleAutopilot } from './sim/autopilot';
 import { createCannon, stepCannon } from './sim/cannon';
 import { spawnCraft, stepCraft } from './sim/craft';
 import { createEnemies, isOverrun, stepEnemies } from './sim/enemies';
@@ -39,6 +40,9 @@ const { physics, plume, colours } = settings;
 let terrain: Terrain = buildMap(findMap(settings.mapId));
 const craft = spawnCraft(terrain, physics);
 const cannon = createCannon();
+const autopilot = createAutopilot();
+/** Set when the autopilot hands back control, so a thrust button still held doesn't take straight off again. */
+let thrustHeldOver = false;
 const sound = new SoundEngine(settings.sound);
 /** Shots already played, to sound each new one once. */
 let shotsHeard = 0;
@@ -132,6 +136,7 @@ function newGame(mapId: string) {
   terrain = buildMap(findMap(mapId));
   Object.assign(craft, spawnCraft(terrain, physics));
   Object.assign(cannon, createCannon());
+  Object.assign(autopilot, createAutopilot());
   Object.assign(enemies, newEnemies());
   buildViews();
   resetMotion();
@@ -174,11 +179,17 @@ const gameOverScreen = new GameOverScreen(document.querySelector<HTMLDivElement>
 });
 showPanel();
 
+// R engages auto-refuel (once per wave), or hands control back if it is flying.
+document.addEventListener('keydown', (e) => {
+  if (e.code !== 'KeyR' || e.repeat || !input.locked || gameOver) return;
+  toggleAutopilot(autopilot, craft, terrain, enemies.wave);
+});
+
 // Dev-only handle for poking at the game from the console or browser automation.
 // Setting `zarch.input.locked = true` runs the simulation without pointer lock.
 if (import.meta.env.DEV) {
   Object.assign(window, {
-    zarch: { craft, cannon, enemies, input, settings, sound, get terrain() { return terrain; }, get gameOver() { return gameOver; } },
+    zarch: { craft, cannon, autopilot, enemies, input, settings, sound, get terrain() { return terrain; }, get gameOver() { return gameOver; } },
   });
 }
 
@@ -230,7 +241,18 @@ function frame(now: number) {
       if (craft.status === 'landed') input.centre();
       const wasCrashed = craft.status === 'crashed';
       simTime += STEP;
-      stepCraft(craft, input.snapshot(), terrain, STEP, physics);
+      const wasAuto = autopilot.active;
+      const auto = stepAutopilot(autopilot, craft, terrain, physics);
+      if (auto) {
+        // Keep the mouse aim with the autopilot's, so taking back control doesn't jolt the craft.
+        input.aimX = auto.aimX;
+        input.aimY = auto.aimY;
+      }
+      if (wasAuto && !auto) thrustHeldOver = true; // landed on the pad (a cancel with R hands over at once)
+      if (!input.thrust) thrustHeldOver = false;
+      const manual = input.snapshot();
+      if (thrustHeldOver) manual.thrust = false;
+      stepCraft(craft, auto ?? manual, terrain, STEP, physics);
       for (const impact of stepCannon(cannon, craft, input.fire, terrain, STEP, physics)) {
         effectsView.impact(impact);
         if (impact.tree) {
@@ -276,7 +298,7 @@ function frame(now: number) {
   effectsView.update(effectsDt, physics.gravity);
   renderer.render(scene, camera);
 
-  hud.update(craft, physics, enemies, settings.enemies, terrain, effectsDt);
+  hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, effectsDt);
   playSounds();
   scanner.update(terrain, palette, craft, enemies, elapsed);
 

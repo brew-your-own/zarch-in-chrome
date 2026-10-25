@@ -1,3 +1,4 @@
+import { autopilotReady, type AutopilotState } from '../sim/autopilot';
 import type { CraftState, Physics } from '../sim/craft';
 import type { EnemySettings, EnemyState } from '../sim/enemies';
 import type { Terrain } from '../sim/terrain';
@@ -36,6 +37,7 @@ export class Hud {
   private readonly virus: HTMLDivElement;
   private readonly arrow: HTMLSpanElement;
   private readonly padText: HTMLSpanElement;
+  private readonly auto: HTMLSpanElement;
   private readonly status: HTMLDivElement;
   private readonly banner: HTMLDivElement;
   private shownWave = 0;
@@ -56,6 +58,9 @@ export class Hud {
     this.arrow.innerHTML =
       '<svg viewBox="-10 -10 20 20" width="20" height="20"><path d="M0 -9 L7 7 L0 3 L-7 7 Z" fill="#fff" stroke="#000" stroke-width="1.5"/></svg>';
     this.padText = el('span', 'hud-value', compass);
+    const auto = el('div', 'hud-row', root);
+    el('span', 'hud-label', auto).textContent = 'AUTO';
+    this.auto = el('span', 'hud-auto', auto);
     this.status = el('div', 'hud-status', root);
     this.banner = el('div', 'wave-banner', bannerParent);
   }
@@ -66,6 +71,7 @@ export class Hud {
     enemies: EnemyState,
     rules: EnemySettings,
     terrain: Terrain,
+    autopilot: AutopilotState,
     dt: number,
   ): void {
     const fuel = Math.max(0, Math.min(1, craft.fuel / physics.maxFuel));
@@ -88,11 +94,20 @@ export class Hud {
     this.arrow.style.visibility = onPad ? 'hidden' : 'visible';
     this.padText.textContent = onPad ? 'here' : distance.toFixed(0);
 
+    // Auto-refuel: once per wave. On the pad it isn't needed, so it reads as waiting rather than used.
+    const used = autopilot.usedInWave === enemies.wave;
+    this.auto.textContent = autopilot.active ? 'RETURNING TO PAD'
+      : used ? 'USED THIS WAVE'
+      : autopilotReady(autopilot, craft, terrain, enemies.wave) ? 'READY  [R]'
+      : 'STANDBY';
+    this.auto.className = `hud-auto${autopilot.active ? ' engaged' : used ? ' spent' : ''}`;
+
     const refuelling = craft.status === 'landed' && onPad && fuel < 1;
     this.status.textContent =
       craft.status === 'crashed' ? 'CRASHED'
       : refuelling ? 'REFUELLING'
       : low ? (fuel === 0 ? 'OUT OF FUEL' : 'LOW FUEL')
+      : autopilot.active ? 'AUTOPILOT'
       : craft.status === 'landed' ? 'LANDED'
       : '';
     this.status.className = `hud-status${craft.status === 'crashed' || low ? ' warn' : ''}`;
