@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { tiltAngle, type CraftState } from '../sim/craft';
+import { tiltAngle, type CraftState, type Physics } from '../sim/craft';
 import type { Terrain } from '../sim/terrain';
 
 // Low-poly lander in local space: +y is the craft's up (thrust) axis, nose toward -z.
@@ -52,7 +52,10 @@ export class CraftView {
   private readonly local: THREE.BufferAttribute;
   private readonly shadowPositions: Float32Array;
 
-  constructor(private readonly terrain: Terrain) {
+  constructor(
+    private readonly terrain: Terrain,
+    private readonly physics: Physics,
+  ) {
     const geometry = craftGeometry();
     this.local = geometry.attributes.position as THREE.BufferAttribute;
     this.craft = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
@@ -81,7 +84,7 @@ export class CraftView {
 
     this.craft.position.set(pos.x, pos.y, pos.z);
     // Yaw so the nose faces the tilt direction, then dip the nose by the tilt angle.
-    this.craft.rotation.set(-tiltAngle(state), -state.heading, 0);
+    this.craft.rotation.set(-tiltAngle(state, this.physics), -state.heading, 0);
     this.craft.updateMatrixWorld();
 
     const p = new THREE.Vector3();

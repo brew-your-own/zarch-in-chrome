@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CRAFT, spawnCraft, stepCraft, thrustDirection, type CraftInput, type CraftState } from './craft';
+import { DEFAULT_PHYSICS as P, spawnCraft, stepCraft, thrustDirection, type CraftInput, type CraftState } from './craft';
 import { Terrain } from './terrain';
 
 const DT = 1 / 60;
@@ -28,7 +28,7 @@ describe('craft', () => {
     const s = spawnCraft(flatWorld());
     expect(s.status).toBe('landed');
     expect(s.pos).toEqual({ x: 1, y: 1, z: 1 });
-    expect(s.fuel).toBe(CRAFT.MAX_FUEL);
+    expect(s.fuel).toBe(P.maxFuel);
   });
 
   it('falls under gravity', () => {
@@ -43,7 +43,7 @@ describe('craft', () => {
     const s = run(spawnCraft(t), { ...IDLE, thrust: true }, t, 1);
     expect(s.status).toBe('flying');
     expect(s.pos.y).toBeGreaterThan(1.5);
-    expect(s.fuel).toBeLessThan(CRAFT.MAX_FUEL);
+    expect(s.fuel).toBeLessThan(P.maxFuel);
   });
 
   it('tilts toward the mouse and pushes the craft that way', () => {
@@ -60,7 +60,7 @@ describe('craft', () => {
   it('caps the tilt when the aim leaves the unit disk', () => {
     const t = flatWorld();
     const s = run(airborne(t, 3, 10, 3), { aimX: 5, aimY: 0, thrust: false }, t, 2);
-    expect(Math.acos(thrustDirection(s).y)).toBeCloseTo(CRAFT.MAX_TILT, 3);
+    expect(Math.acos(thrustDirection(s).y)).toBeCloseTo(P.maxTilt, 3);
   });
 
   it('does not thrust without fuel', () => {
@@ -141,12 +141,26 @@ describe('craft', () => {
     expect(s.thrusting).toBe(false);
   });
 
+  it('uses the physics it is given', () => {
+    const t = flatWorld();
+    const moon = { ...P, gravity: P.gravity / 6 };
+    const earth = run(airborne(t, 3, 10, 3), IDLE, t, 0.5);
+    const s = airborne(t, 3, 10, 3);
+    for (let time = 0; time < 0.5; time += DT) stepCraft(s, IDLE, t, DT, moon);
+    expect(s.pos.y).toBeGreaterThan(earth.pos.y);
+
+    const weak = { ...P, thrust: P.gravity / 2 };
+    const grounded = spawnCraft(t, weak);
+    for (let time = 0; time < 0.5; time += DT) stepCraft(grounded, { ...IDLE, thrust: true }, t, DT, weak);
+    expect(grounded.status).toBe('landed');
+  });
+
   it('respawns on the pad after a crash', () => {
     const t = flatWorld();
     const s = airborne(t, 3.5, 1.05, 3.5);
     s.vel.y = -5;
     run(s, IDLE, t, 0.1);
-    run(s, IDLE, t, CRAFT.RESPAWN_DELAY + 0.1);
+    run(s, IDLE, t, P.respawnDelay + 0.1);
     expect(s.status).toBe('landed');
     expect(s.pos).toEqual(t.padCentre());
   });

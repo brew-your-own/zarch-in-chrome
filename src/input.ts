@@ -54,7 +54,8 @@ export class MouseInput {
   }
 
   requestLock(): void {
-    void this.target.requestPointerLock();
+    // Browsers refuse a re-lock right after Esc; the player can just click again.
+    this.target.requestPointerLock().catch(() => {});
   }
 
   snapshot(): CraftInput {

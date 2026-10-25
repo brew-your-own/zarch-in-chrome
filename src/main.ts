@@ -3,8 +3,11 @@ import { MouseInput } from './input';
 import { CraftView } from './render/craftView';
 import { ExhaustView } from './render/exhaustView';
 import { TerrainView } from './render/terrainView';
-import { CRAFT, spawnCraft, stepCraft } from './sim/craft';
-import { generateTerrain } from './sim/terrain';
+import { loadSettings, saveSettings } from './settings';
+import { spawnCraft, stepCraft } from './sim/craft';
+import { buildMap, findMap } from './sim/maps';
+import type { Terrain } from './sim/terrain';
+import { SettingsPanel } from './ui/settingsPanel';
 
 const STEP = 1 / 60;
 const MAX_FRAME = 0.25;
@@ -17,9 +20,10 @@ const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
 const hud = document.querySelector<HTMLDivElement>('#hud')!;
 const overlay = document.querySelector<HTMLDivElement>('#overlay')!;
 
-const seed = Number(new URLSearchParams(location.search).get('seed') ?? 1987);
-const terrain = generateTerrain(seed);
-const craft = spawnCraft(terrain);
+const settings = loadSettings();
+const { physics, plume } = settings;
+let terrain: Terrain = buildMap(findMap(settings.mapId));
+const craft = spawnCraft(terrain, physics);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -33,17 +37,55 @@ scene.add(sun);
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
 camera.rotation.set(CAMERA_PITCH, 0, 0);
 
-const terrainView = new TerrainView(terrain);
-const craftView = new CraftView(terrain);
-const exhaustView = new ExhaustView(terrain);
-scene.add(terrainView.mesh, craftView.shadow, craftView.craft, exhaustView.points);
+// Views hold the terrain they draw, so they are rebuilt when the map changes.
+let terrainView: TerrainView;
+let craftView: CraftView;
+let exhaustView: ExhaustView;
 
-const input = new MouseInput(canvas, (locked) => overlay.classList.toggle('hidden', locked));
-overlay.addEventListener('click', () => input.requestLock());
+function buildViews() {
+  for (const old of [terrainView?.mesh, craftView?.shadow, craftView?.craft, exhaustView?.points]) {
+    if (!old) continue;
+    scene.remove(old);
+    old.geometry.dispose();
+    (old.material as THREE.Material).dispose();
+  }
+  terrainView = new TerrainView(terrain);
+  craftView = new CraftView(terrain, physics);
+  exhaustView = new ExhaustView(terrain, physics, plume);
+  scene.add(terrainView.mesh, craftView.shadow, craftView.craft, exhaustView.points);
+}
+buildViews();
+
+let started = false;
+const input = new MouseInput(canvas, (locked) => {
+  if (locked) {
+    started = true;
+    panel.hide();
+  } else {
+    panel.show(terrain, craft.pos, started);
+  }
+});
+
+const panel = new SettingsPanel(overlay, settings, {
+  onFly: () => input.requestLock(),
+  onChange: () => saveSettings(settings),
+  onMapChange: (mapId) => {
+    settings.mapId = mapId;
+    saveSettings(settings);
+    terrain = buildMap(findMap(mapId));
+    Object.assign(craft, spawnCraft(terrain, physics));
+    buildViews();
+    resetMotion();
+    panel.show(terrain, craft.pos, started);
+  },
+});
+panel.show(terrain, craft.pos, started);
 
 // Dev-only handle for poking at the game from the console or browser automation.
 // Setting `zarch.input.locked = true` runs the simulation without pointer lock.
-if (import.meta.env.DEV) Object.assign(window, { zarch: { craft, input, terrain } });
+if (import.meta.env.DEV) {
+  Object.assign(window, { zarch: { craft, input, settings, get terrain() { return terrain; } } });
+}
 
 function resize() {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -59,6 +101,13 @@ let cameraY = craft.pos.y;
 let accumulator = 0;
 let last = performance.now();
 
+/** Snaps interpolation and camera to the craft, e.g. after a teleport to a new map. */
+function resetMotion() {
+  Object.assign(prevPos, craft.pos);
+  cameraY = craft.pos.y;
+  accumulator = 0;
+}
+
 function frame(now: number) {
   const elapsed = Math.min(MAX_FRAME, (now - last) / 1000);
   last = now;
@@ -69,7 +118,7 @@ function frame(now: number) {
       Object.assign(prevPos, craft.pos);
       // Mouse movement is ignored while landed, so every liftoff starts from a centred aim.
       if (craft.status === 'landed') input.centre();
-      stepCraft(craft, input.snapshot(), terrain, STEP);
+      stepCraft(craft, input.snapshot(), terrain, STEP, physics);
       accumulator -= STEP;
     }
   }
@@ -91,7 +140,7 @@ function frame(now: number) {
   const ground = terrain.heightAt(craft.pos.x, craft.pos.z);
   const speed = Math.hypot(craft.vel.x, craft.vel.y, craft.vel.z);
   hud.textContent = [
-    `FUEL  ${'#'.repeat(Math.ceil((craft.fuel / CRAFT.MAX_FUEL) * 20)).padEnd(20, '.')}`,
+    `FUEL  ${'#'.repeat(Math.ceil((craft.fuel / physics.maxFuel) * 20)).padEnd(20, '.')}`,
     `ALT   ${(craft.pos.y - ground).toFixed(1)}`,
     `SPEED ${speed.toFixed(1)}`,
     craft.status === 'crashed' ? 'CRASHED' : craft.status === 'landed' ? 'LANDED' : '',

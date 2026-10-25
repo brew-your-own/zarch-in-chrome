@@ -1,13 +1,31 @@
 import * as THREE from 'three';
-import { CRAFT, thrustDirection, type CraftState } from '../sim/craft';
+import { thrustDirection, type CraftState, type Physics } from '../sim/craft';
 import type { Terrain } from '../sim/terrain';
 
-const MAX_PARTICLES = 600;
-const EMIT_RATE = 400; // particles per second
-const EJECT_SPEED = 4;
-const SPREAD = 0.7;
-const LIFETIME_MIN = 0.4;
-const LIFETIME_MAX = 0.9;
+/** Tunable plume look, read every frame so the settings panel applies immediately. */
+export interface PlumeSettings {
+  /** Particles emitted per second. */
+  rate: number;
+  /** Ejection speed relative to the craft (units/s). */
+  speed: number;
+  /** Random velocity jitter (units/s). */
+  spread: number;
+  /** Mean particle lifetime (s); each particle lives 60-140% of it. */
+  lifetime: number;
+  /** Particle size in world units. */
+  size: number;
+}
+
+export const DEFAULT_PLUME: Readonly<PlumeSettings> = Object.freeze({
+  rate: 400,
+  speed: 4,
+  spread: 0.7,
+  lifetime: 0.65,
+  size: 0.07,
+});
+
+/** Enough for the panel's highest rate at its longest lifetime. */
+const MAX_PARTICLES = 4500;
 const BOUNCE = 0.3;
 const GROUND_FRICTION = 0.6;
 /** Where particles leave the craft, in craft-local space (just under the belly). */
@@ -32,17 +50,22 @@ export class ExhaustView {
   private readonly nozzle = new THREE.Vector3();
   private readonly colour = new THREE.Color();
 
-  constructor(private readonly terrain: Terrain) {
+  constructor(
+    private readonly terrain: Terrain,
+    private readonly physics: Physics,
+    private readonly plume: PlumeSettings,
+  ) {
     this.ages.fill(Infinity);
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
     geometry.setAttribute('color', new THREE.BufferAttribute(this.colors, 3).setUsage(THREE.DynamicDrawUsage));
-    this.points = new THREE.Points(geometry, new THREE.PointsMaterial({ size: 0.07, vertexColors: true }));
+    this.points = new THREE.Points(geometry, new THREE.PointsMaterial({ size: plume.size, vertexColors: true }));
     this.points.frustumCulled = false;
   }
 
   /** `craftMatrix` is the craft mesh's world matrix; `dt` is 0 while paused. */
   update(state: CraftState, craftMatrix: THREE.Matrix4, dt: number): void {
+    (this.points.material as THREE.PointsMaterial).size = this.plume.size;
     if (dt > 0 && state.thrusting) this.emit(state, craftMatrix, dt);
     for (let k = 0; k < MAX_PARTICLES; k++) this.advance(k, dt);
     this.points.geometry.attributes.position!.needsUpdate = true;
@@ -50,21 +73,22 @@ export class ExhaustView {
   }
 
   private emit(state: CraftState, craftMatrix: THREE.Matrix4, dt: number): void {
-    const dir = thrustDirection(state);
+    const { rate, speed: ejectSpeed, spread, lifetime } = this.plume;
+    const dir = thrustDirection(state, this.physics);
     this.nozzle.copy(NOZZLE).applyMatrix4(craftMatrix);
-    this.emitDebt += EMIT_RATE * dt;
+    this.emitDebt += rate * dt;
     while (this.emitDebt >= 1) {
       this.emitDebt -= 1;
       const k = this.next;
       this.next = (this.next + 1) % MAX_PARTICLES;
-      const speed = EJECT_SPEED * (0.7 + 0.6 * Math.random());
-      this.velocities[k * 3] = state.vel.x - dir.x * speed + (Math.random() - 0.5) * SPREAD;
-      this.velocities[k * 3 + 1] = state.vel.y - dir.y * speed + (Math.random() - 0.5) * SPREAD;
-      this.velocities[k * 3 + 2] = state.vel.z - dir.z * speed + (Math.random() - 0.5) * SPREAD;
+      const speed = ejectSpeed * (0.7 + 0.6 * Math.random());
+      this.velocities[k * 3] = state.vel.x - dir.x * speed + (Math.random() - 0.5) * spread;
+      this.velocities[k * 3 + 1] = state.vel.y - dir.y * speed + (Math.random() - 0.5) * spread;
+      this.velocities[k * 3 + 2] = state.vel.z - dir.z * speed + (Math.random() - 0.5) * spread;
       this.positions[k * 3] = this.nozzle.x;
       this.positions[k * 3 + 1] = this.nozzle.y;
       this.positions[k * 3 + 2] = this.nozzle.z;
-      this.lifetimes[k] = LIFETIME_MIN + Math.random() * (LIFETIME_MAX - LIFETIME_MIN);
+      this.lifetimes[k] = lifetime * (0.6 + 0.8 * Math.random());
       this.ages[k] = 0;
       // Spread spawns across the frame so the plume doesn't come out in clumps.
       this.advance(k, Math.random() * dt);
@@ -81,7 +105,7 @@ export class ExhaustView {
       return;
     }
 
-    v[k * 3 + 1]! -= CRAFT.GRAVITY * dt;
+    v[k * 3 + 1]! -= this.physics.gravity * dt;
     p[k * 3]! += v[k * 3]! * dt;
     p[k * 3 + 1]! += v[k * 3 + 1]! * dt;
     p[k * 3 + 2]! += v[k * 3 + 2]! * dt;

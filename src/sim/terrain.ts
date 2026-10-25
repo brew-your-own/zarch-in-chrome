@@ -120,25 +120,25 @@ export interface TerrainOptions {
   amplitude?: number;
   /** Shifts the landscape down so lower areas flood into sea. */
   seaBias?: number;
+  /** Weight of each finer noise octave relative to the previous one; higher is bumpier. */
+  roughness?: number;
 }
 
-const OCTAVES = [
-  { cell: 16, weight: 1 },
-  { cell: 8, weight: 0.5 },
-  { cell: 4, weight: 0.25 },
-];
+/** Noise cell sizes in tiles, coarsest first. */
+const OCTAVE_CELLS = [16, 8, 4];
 
 /**
  * Seeded, wrapping value-noise landscape with a flat launch pad in the middle.
  * The same seed always produces the same terrain.
  */
 export function generateTerrain(seed: number, options: TerrainOptions = {}): Terrain {
-  const { size = 64, amplitude = 4, seaBias = 0.35 } = options;
+  const { size = 64, amplitude = 4, seaBias = 0.35, roughness = 0.5 } = options;
   const rng = createRng(seed);
   const heights = new Float32Array(size * size);
-  const totalWeight = OCTAVES.reduce((sum, o) => sum + o.weight, 0);
+  const octaves = OCTAVE_CELLS.map((cell, k) => ({ cell, weight: roughness ** k }));
+  const totalWeight = octaves.reduce((sum, o) => sum + o.weight, 0);
 
-  for (const { cell, weight } of OCTAVES) {
+  for (const { cell, weight } of octaves) {
     if (size % cell !== 0) throw new Error(`size ${size} not divisible by ${cell}`);
     const n = size / cell;
     const lattice = Array.from({ length: n * n }, rng);
