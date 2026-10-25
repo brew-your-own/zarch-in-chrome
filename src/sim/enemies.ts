@@ -31,6 +31,15 @@ export function isOverrun(terrain: Terrain, settings: EnemySettings): boolean {
   return terrain.infectedFraction() >= settings.overrunAt;
 }
 
+/** Horizontal distance (wrapped) from `pos` to the nearest seeder, or Infinity if there is none. */
+export function nearestSeederDistance(enemies: EnemyState, pos: { x: number; z: number }, terrain: Terrain): number {
+  let nearest = Infinity;
+  for (const s of enemies.seeders) {
+    nearest = Math.min(nearest, Math.hypot(terrain.delta(pos.x, s.pos.x), terrain.delta(pos.z, s.pos.z)));
+  }
+  return nearest;
+}
+
 /** Height seeders keep above the ground under and just ahead of them. */
 export const SEEDER_CRUISE = 2.5;
 /** Collision radius of a seeder (bullets and the craft). */

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SoundEngine } from './audio/sound';
+import { proximityLevel, SoundEngine } from './audio/sound';
 import { MouseInput } from './input';
 import { BulletView } from './render/bulletView';
 import { CraftView } from './render/craftView';
@@ -15,7 +15,7 @@ import { loadSettings, saveSettings } from './settings';
 import { createAutopilot, stepAutopilot, toggleAutopilot } from './sim/autopilot';
 import { createCannon, stepCannon } from './sim/cannon';
 import { spawnCraft, stepCraft } from './sim/craft';
-import { createEnemies, isOverrun, stepEnemies } from './sim/enemies';
+import { createEnemies, isOverrun, nearestSeederDistance, stepEnemies } from './sim/enemies';
 import { buildMap, findMap } from './sim/maps';
 import type { Terrain } from './sim/terrain';
 import { GameOverScreen, recordScore, type GameOverStats } from './ui/gameOver';
@@ -220,10 +220,17 @@ function distanceFromCraft(pos: { x: number; z: number }): number {
   return Math.hypot(terrain.delta(craft.pos.x, pos.x), terrain.delta(craft.pos.z, pos.z));
 }
 
+/** Proximity alarm level (0-1) for the nearest seeder; silent while paused, over or wrecked. */
+function proximityAlert(): number {
+  if (!input.locked || gameOver || craft.status === 'crashed') return 0;
+  return proximityLevel(nearestSeederDistance(enemies, craft.pos, terrain), settings.sound.alertDistance);
+}
+
 /** Continuous and per-shot sounds for this frame (explosions play from the sim events). */
-function playSounds() {
+function playSounds(alert: number) {
   sound.update();
   sound.thruster(input.locked && !gameOver && craft.thrusting);
+  sound.proximity(alert);
   if (cannon.shots < shotsHeard) shotsHeard = 0; // a new game reset the cannon
   // At most two blips per frame, so a long frame doesn't stack a burst of shots.
   for (let k = 0; k < Math.min(2, cannon.shots - shotsHeard); k++) sound.cannon();
@@ -299,9 +306,10 @@ function frame(now: number) {
   effectsView.update(effectsDt, physics.gravity);
   renderer.render(scene, camera);
 
-  hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, settings.autopilot, effectsDt);
-  playSounds();
-  scanner.update(terrain, palette, craft, enemies, elapsed);
+  const alert = proximityAlert();
+  hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, settings.autopilot, alert, effectsDt);
+  playSounds(alert);
+  scanner.update(terrain, palette, craft, enemies, settings.sound.alertDistance, alert, elapsed);
 
   requestAnimationFrame(frame);
 }

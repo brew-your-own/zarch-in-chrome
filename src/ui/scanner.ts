@@ -23,7 +23,16 @@ export class Scanner {
   }
 
   /** `dt` is the frame time, used to pace terrain refreshes. */
-  update(terrain: Terrain, palette: Palette, craft: CraftState, enemies: EnemyState, dt: number): void {
+  /** `alertDistance` (tiles) is drawn as a ring around the craft; it turns red while `alert` (0-1) is up. */
+  update(
+    terrain: Terrain,
+    palette: Palette,
+    craft: CraftState,
+    enemies: EnemyState,
+    alertDistance: number,
+    alert: number,
+    dt: number,
+  ): void {
     this.imageAge += dt;
     const stale = this.imageFor?.terrain !== terrain || this.imageFor.palette !== palette;
     if (!this.image || stale || this.imageAge >= TERRAIN_REFRESH) {
@@ -55,6 +64,17 @@ export class Scanner {
     ctx.strokeRect(px - 1, py - 1, pad.w * scale + 2, pad.h * scale + 2);
     ctx.strokeStyle = '#fff';
     ctx.strokeRect(px, py, pad.w * scale, pad.h * scale);
+
+    // Proximity alarm ring: faint while quiet, red and thicker the louder the alarm.
+    if (alertDistance > 0) {
+      ctx.beginPath();
+      ctx.arc(half, half, alertDistance * scale, 0, Math.PI * 2);
+      ctx.lineWidth = alert > 0 ? 1 + 2 * alert : 1;
+      ctx.strokeStyle = alert > 0 ? `rgba(255, 64, 48, ${0.5 + 0.5 * alert})` : 'rgba(255, 255, 255, 0.35)';
+      ctx.setLineDash(alert > 0 ? [] : [3, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
 
     for (const s of enemies.seeders) {
       const [x, y] = toScreen(s.pos.x, s.pos.z);

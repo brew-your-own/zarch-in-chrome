@@ -73,6 +73,8 @@ export class Hud {
     terrain: Terrain,
     autopilot: AutopilotState,
     autopilotSettings: AutopilotSettings,
+    /** Proximity alarm level, 0-1. */
+    alert: number,
     dt: number,
   ): void {
     const fuel = Math.max(0, Math.min(1, craft.fuel / physics.maxFuel));
@@ -107,12 +109,13 @@ export class Hud {
     const refuelling = craft.status === 'landed' && onPad && fuel < 1;
     this.status.textContent =
       craft.status === 'crashed' ? 'CRASHED'
+      : alert > 0 ? 'ENEMY CLOSE'
       : refuelling ? 'REFUELLING'
       : low ? (fuel === 0 ? 'OUT OF FUEL' : 'LOW FUEL')
       : autopilot.active ? 'AUTOPILOT'
       : craft.status === 'landed' ? 'LANDED'
       : '';
-    this.status.className = `hud-status${craft.status === 'crashed' || low ? ' warn' : ''}`;
+    this.status.className = `hud-status${craft.status === 'crashed' || low || alert > 0 ? ' warn' : ''}`;
 
     if (enemies.wave !== this.shownWave) {
       this.shownWave = enemies.wave;

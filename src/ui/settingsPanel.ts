@@ -48,6 +48,7 @@ const ENEMY_SLIDERS: SliderSpec<Settings['enemies']>[] = [
 
 const SOUND_SLIDERS: SliderSpec<Settings['sound']>[] = [
   { key: 'volume', label: 'Volume', min: 0, max: 100, step: 5, unit: '%', scale: 100 },
+  { key: 'alertDistance', label: 'Proximity alarm', min: 0, max: 30, step: 1, unit: 'tiles' },
 ];
 
 const PLUME_SLIDERS: SliderSpec<Settings['plume']>[] = [
@@ -159,6 +160,7 @@ export class SettingsPanel {
     for (const spec of COLOUR_SLIDERS) tuning.append(this.slider(settings.colours, spec));
     tuning.append(el('h2', undefined, 'Sound'));
     for (const spec of SOUND_SLIDERS) tuning.append(this.slider(settings.sound, spec));
+    tuning.append(el('p', 'note', 'The alarm sounds when a seeder comes within this distance, louder as it closes in. 0 turns it off.'));
     const reset = el('button', 'reset', 'Reset to defaults');
     reset.addEventListener('click', () => {
       Object.assign(settings.physics, DEFAULT_PHYSICS);

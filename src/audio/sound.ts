@@ -2,9 +2,27 @@
 export interface SoundSettings {
   /** Master volume, 0-1. 0 is silent. */
   volume: number;
+  /** Distance (tiles) at which the proximity alarm starts for an approaching seeder. 0 turns it off. */
+  alertDistance: number;
 }
 
-export const DEFAULT_SOUND: Readonly<SoundSettings> = Object.freeze({ volume: 0.6 });
+export const DEFAULT_SOUND: Readonly<SoundSettings> = Object.freeze({ volume: 0.6, alertDistance: 10 });
+
+/** Within this distance (tiles) of a seeder the proximity alarm is at full volume. */
+export const FULL_ALERT_DISTANCE = 3;
+/** Alarm level at the edge of the alert distance, so it starts quiet but audible. */
+const MIN_ALERT_LEVEL = 0.15;
+
+/**
+ * Proximity alarm level, 0-1, for the nearest seeder `distance` tiles away: 0 beyond
+ * `alertDistance`, rising from a quiet `MIN_ALERT_LEVEL` to 1 at `FULL_ALERT_DISTANCE`.
+ */
+export function proximityLevel(distance: number, alertDistance: number): number {
+  if (alertDistance <= 0 || distance >= alertDistance) return 0;
+  if (distance <= FULL_ALERT_DISTANCE) return 1;
+  const t = (alertDistance - distance) / (alertDistance - FULL_ALERT_DISTANCE);
+  return MIN_ALERT_LEVEL + (1 - MIN_ALERT_LEVEL) * t;
+}
 
 /** Distance (tiles) at which a sound is at half volume. */
 const HALF_VOLUME_DISTANCE = 8;
@@ -24,6 +42,12 @@ export function explosionShape(size: number): { peak: number; duration: number; 
 }
 
 const THRUST_GAIN = 0.32;
+/** Proximity alarm volume at level 1. */
+const ALERT_GAIN = 0.16;
+/** The alarm alternates between this pitch (Hz) and an octave above it. */
+const ALERT_PITCH = 220;
+/** Seconds on each pitch. */
+const ALERT_STEP = 0.5;
 /** Time constant (s) for the thruster fading in and out. */
 const THRUST_FADE = 0.06;
 
@@ -39,6 +63,8 @@ export class SoundEngine {
   private thrustGain?: GainNode;
   private thrustFilter?: BiquadFilterNode;
   private thrustOn = false;
+  private alertGain?: GainNode;
+  private alertLevel = 0;
 
   constructor(private readonly settings: SoundSettings) {}
 
@@ -62,6 +88,16 @@ export class SoundEngine {
     const t = this.ctx.currentTime;
     this.thrustGain.gain.setTargetAtTime(on ? THRUST_GAIN : 0, t, THRUST_FADE);
     this.thrustFilter.frequency.setTargetAtTime(on ? 520 : 200, t, THRUST_FADE * 2);
+  }
+
+  /**
+   * Proximity alarm: a low tone and its octave, alternating every `ALERT_STEP` seconds.
+   * `level` (0-1, from `proximityLevel`) sets its volume; 0 silences it.
+   */
+  proximity(level: number): void {
+    if (!this.ctx || !this.alertGain || Math.abs(level - this.alertLevel) < 0.01) return;
+    this.alertLevel = level;
+    this.alertGain.gain.setTargetAtTime(level * ALERT_GAIN, this.ctx.currentTime, 0.08);
   }
 
   /** One cannon shot: a falling square-wave blip plus a noise click. */
@@ -189,5 +225,31 @@ export class SoundEngine {
     source.connect(this.thrustFilter).connect(this.thrustGain).connect(this.master);
     source.start();
     wobble.start();
+
+    // Proximity alarm: a square tone, softened by a lowpass, stepped between ALERT_PITCH and
+    // its octave by a slow square-wave LFO. The LFO is hard-clipped to ±1 first, because the
+    // band-limited square overshoots at each switch and would chirp the pitch. The alarm runs
+    // silently until `proximity` raises its gain.
+    const tone = ctx.createOscillator();
+    tone.type = 'square';
+    tone.frequency.value = ALERT_PITCH * 1.5;
+    const steps = ctx.createOscillator();
+    steps.type = 'square';
+    steps.frequency.value = 1 / (2 * ALERT_STEP);
+    const clip = ctx.createWaveShaper();
+    const curve = new Float32Array(1024);
+    for (let k = 0; k < curve.length; k++) curve[k] = k < curve.length / 2 ? -1 : 1;
+    clip.curve = curve;
+    const swing = ctx.createGain();
+    swing.gain.value = ALERT_PITCH * 0.5;
+    steps.connect(clip).connect(swing).connect(tone.frequency);
+    const soften = ctx.createBiquadFilter();
+    soften.type = 'lowpass';
+    soften.frequency.value = 1200;
+    this.alertGain = ctx.createGain();
+    this.alertGain.gain.value = 0;
+    tone.connect(soften).connect(this.alertGain).connect(this.master);
+    tone.start();
+    steps.start();
   }
 }

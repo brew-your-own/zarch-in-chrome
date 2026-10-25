@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attenuation, EXPLOSION_SIZE, explosionShape, SoundEngine, DEFAULT_SOUND } from './sound';
+import { attenuation, EXPLOSION_SIZE, explosionShape, FULL_ALERT_DISTANCE, proximityLevel, SoundEngine, DEFAULT_SOUND } from './sound';
 
 describe('sound helpers', () => {
   it('fades with distance: full at 0, half at 8 tiles, never silent', () => {
@@ -20,6 +20,19 @@ describe('sound helpers', () => {
     expect(tree.thump).toBe(false);
   });
 
+  it('raises the proximity alarm from quiet at the alert distance to full inside the inner circle', () => {
+    expect(proximityLevel(Infinity, 10)).toBe(0);
+    expect(proximityLevel(10, 10)).toBe(0);
+    const edge = proximityLevel(9.9, 10);
+    expect(edge).toBeGreaterThan(0);
+    expect(edge).toBeLessThan(0.25);
+    expect(proximityLevel(6, 10)).toBeGreaterThan(edge);
+    expect(proximityLevel(FULL_ALERT_DISTANCE, 10)).toBe(1);
+    expect(proximityLevel(1, 10)).toBe(1);
+    expect(proximityLevel(1, 0)).toBe(0); // switched off
+    expect(proximityLevel(1, 2)).toBe(1); // alert distance inside the inner circle
+  });
+
   it('does nothing until resumed (no AudioContext in tests)', () => {
     const engine = new SoundEngine({ ...DEFAULT_SOUND });
     expect(() => {
@@ -27,6 +40,7 @@ describe('sound helpers', () => {
       engine.thruster(true);
       engine.cannon();
       engine.explosion('craft', 3);
+      engine.proximity(0.5);
       engine.update();
     }).not.toThrow();
   });

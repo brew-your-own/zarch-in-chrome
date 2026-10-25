@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Bullet } from './cannon';
 import { DEFAULT_PHYSICS as P, spawnCraft } from './craft';
-import { createEnemies, DEFAULT_ENEMIES, isOverrun, SEEDER_CRUISE, SEEDER_POINTS, stepEnemies, type EnemyEvent } from './enemies';
+import { createEnemies, DEFAULT_ENEMIES, isOverrun, nearestSeederDistance, SEEDER_CRUISE, SEEDER_POINTS, stepEnemies, type EnemyEvent } from './enemies';
 import { Terrain } from './terrain';
 
 const DT = 1 / 60;
@@ -99,6 +99,17 @@ describe('enemies', () => {
     run(5, t, enemies);
     expect(enemies.wave).toBe(2);
     expect(enemies.seeders).toHaveLength(DEFAULT_ENEMIES.firstWave + 1);
+  });
+
+  it('measures the nearest seeder across the wrap', () => {
+    const t = world();
+    const enemies = createEnemies(1);
+    expect(nearestSeederDistance(enemies, { x: 5, z: 5 }, t)).toBe(Infinity);
+    const seeder = (x: number, z: number) => ({ ...run(DT, t).enemies.seeders[0]!, pos: { x, y: 3, z } });
+    enemies.seeders = [seeder(20, 5), seeder(46, 5)];
+    // From x = 2, the seeder at 46 is 4 tiles away going west over the edge.
+    expect(nearestSeederDistance(enemies, { x: 2, z: 5 }, t)).toBeCloseTo(4);
+    expect(nearestSeederDistance(enemies, { x: 2 + 48 * 3, z: 5 }, t)).toBeCloseTo(4);
   });
 
   it('is overrun once the virus covers the configured share of land', () => {
