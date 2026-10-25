@@ -22,6 +22,7 @@ export type CraftStatus = 'flying' | 'landed' | 'crashed';
 
 export interface CraftState {
   pos: Vec3;
+  /** While crashed, frozen at the velocity of the impact (for the explosion). */
   vel: Vec3;
   /**
    * Horizontal tilt vector in world xz, magnitude in [0, 1].
@@ -59,6 +60,12 @@ export interface Physics {
   safeLandingSlope: number;
   maxAltitude: number;
   respawnDelay: number;
+  /** Cannon shots per second while the fire button is held. */
+  fireRate: number;
+  /** Bullet speed relative to the craft (units/s). */
+  bulletSpeed: number;
+  /** Seconds before a bullet that hit nothing disappears. */
+  bulletLife: number;
 }
 
 /** Horizontal radius of the craft's hull, for collisions with objects. */
@@ -79,6 +86,9 @@ export const DEFAULT_PHYSICS: Readonly<Physics> = Object.freeze({
   safeLandingSlope: (20 * Math.PI) / 180,
   maxAltitude: 30,
   respawnDelay: 2,
+  fireRate: 8,
+  bulletSpeed: 14,
+  bulletLife: 1.2,
 });
 
 export function spawnCraft(terrain: Terrain, physics: Physics = DEFAULT_PHYSICS): CraftState {
@@ -107,6 +117,20 @@ export function thrustDirection(state: CraftState, physics: Physics = DEFAULT_PH
   const angle = tiltAngle(state, physics);
   const s = Math.sin(angle) / mag;
   return { x: state.tilt.x * s, y: Math.cos(angle), z: state.tilt.z * s };
+}
+
+/**
+ * Unit vector along the craft's nose (where the cannon points). The nose follows the
+ * heading and dips by the tilt angle, so leaning forward aims the cannon at the ground.
+ * Matches the renderer's Euler 'YXZ' rotation (-tilt about x, then -heading about y).
+ */
+export function noseDirection(state: CraftState, physics: Physics = DEFAULT_PHYSICS): Vec3 {
+  const t = tiltAngle(state, physics);
+  return {
+    x: Math.cos(t) * Math.sin(state.heading),
+    y: -Math.sin(t),
+    z: -Math.cos(t) * Math.cos(state.heading),
+  };
 }
 
 /**
@@ -195,8 +219,8 @@ export function stepCraft(
   return state;
 }
 
+/** Keeps `vel` as the impact velocity; a crashed craft no longer moves. */
 function crash(state: CraftState, physics: Physics): void {
-  state.vel = { x: 0, y: 0, z: 0 };
   state.status = 'crashed';
   state.respawnIn = physics.respawnDelay;
 }

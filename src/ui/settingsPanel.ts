@@ -29,6 +29,12 @@ const PHYSICS_SLIDERS: SliderSpec<Settings['physics']>[] = [
   { key: 'safeLandingVSpeed', label: 'Max landing speed', min: 0.5, max: 6, step: 0.1, unit: 'u/s' },
 ];
 
+const CANNON_SLIDERS: SliderSpec<Settings['physics']>[] = [
+  { key: 'fireRate', label: 'Fire rate', min: 1, max: 20, step: 0.5, unit: '/s' },
+  { key: 'bulletSpeed', label: 'Bullet speed', min: 4, max: 30, step: 0.5, unit: 'u/s' },
+  { key: 'bulletLife', label: 'Range', min: 0.3, max: 3, step: 0.1, unit: 's' },
+];
+
 const PLUME_SLIDERS: SliderSpec<Settings['plume']>[] = [
   { key: 'rate', label: 'Particles', min: 0, max: 1500, step: 10, unit: '/s' },
   { key: 'speed', label: 'Ejection speed', min: 0, max: 12, step: 0.1, unit: 'u/s' },
@@ -109,7 +115,9 @@ export class SettingsPanel {
     const tuning = el('section');
     tuning.append(el('h2', undefined, 'Physics'));
     for (const spec of PHYSICS_SLIDERS) tuning.append(this.slider(settings.physics, spec));
-    tuning.append(this.ratio, el('h2', undefined, 'Thruster plume'));
+    tuning.append(this.ratio, el('h2', undefined, 'Cannon'));
+    for (const spec of CANNON_SLIDERS) tuning.append(this.slider(settings.physics, spec));
+    tuning.append(el('h2', undefined, 'Thruster plume'));
     for (const spec of PLUME_SLIDERS) tuning.append(this.slider(settings.plume, spec));
     tuning.append(el('h2', undefined, 'Colours'));
     const presets = el('div', 'presets');

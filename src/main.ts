@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import { MouseInput } from './input';
+import { BulletView } from './render/bulletView';
 import { CraftView } from './render/craftView';
+import { EffectsView } from './render/effectsView';
 import { ExhaustView } from './render/exhaustView';
 import { SUN } from './render/lighting';
 import { Palette } from './render/palette';
 import { TerrainView } from './render/terrainView';
 import { TreeView } from './render/treeView';
 import { loadSettings, saveSettings } from './settings';
+import { createCannon, stepCannon } from './sim/cannon';
 import { spawnCraft, stepCraft } from './sim/craft';
 import { buildMap, findMap } from './sim/maps';
 import type { Terrain } from './sim/terrain';
@@ -27,6 +30,7 @@ const settings = loadSettings();
 const { physics, plume, colours } = settings;
 let terrain: Terrain = buildMap(findMap(settings.mapId));
 const craft = spawnCraft(terrain, physics);
+const cannon = createCannon();
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -45,8 +49,10 @@ let terrainView: TerrainView;
 let craftView: CraftView;
 let exhaustView: ExhaustView;
 let treeView: TreeView;
+let bulletView: BulletView;
+let effectsView: EffectsView;
 let palette!: Palette; // assigned by buildViews()
-let sceneObjects: (THREE.Mesh | THREE.Points)[] = [];
+let sceneObjects: (THREE.Mesh | THREE.Points | THREE.LineSegments)[] = [];
 
 function buildViews() {
   for (const old of sceneObjects) {
@@ -60,7 +66,20 @@ function buildViews() {
   treeView = new TreeView(terrain, palette);
   craftView = new CraftView(terrain, physics);
   exhaustView = new ExhaustView(terrain, physics, plume);
-  sceneObjects = [terrainView.mesh, treeView.shadow, ...treeView.meshes, craftView.shadow, craftView.craft, exhaustView.points];
+  bulletView = new BulletView();
+  effectsView = new EffectsView(terrain);
+  sceneObjects = [
+    terrainView.mesh,
+    treeView.shadow,
+    ...treeView.meshes,
+    craftView.shadow,
+    craftView.craft,
+    exhaustView.points,
+    bulletView.tracers,
+    bulletView.heads,
+    effectsView.debris,
+    effectsView.particles,
+  ];
   scene.add(...sceneObjects);
 }
 buildViews();
@@ -83,6 +102,7 @@ const panel = new SettingsPanel(overlay, settings, {
     saveSettings(settings);
     terrain = buildMap(findMap(mapId));
     Object.assign(craft, spawnCraft(terrain, physics));
+    Object.assign(cannon, createCannon());
     buildViews();
     resetMotion();
     panel.show(terrain, palette, craft.pos, started);
@@ -93,7 +113,7 @@ panel.show(terrain, palette, craft.pos, started);
 // Dev-only handle for poking at the game from the console or browser automation.
 // Setting `zarch.input.locked = true` runs the simulation without pointer lock.
 if (import.meta.env.DEV) {
-  Object.assign(window, { zarch: { craft, input, settings, get terrain() { return terrain; } } });
+  Object.assign(window, { zarch: { craft, cannon, input, settings, get terrain() { return terrain; } } });
 }
 
 function resize() {
@@ -127,7 +147,13 @@ function frame(now: number) {
       Object.assign(prevPos, craft.pos);
       // Mouse movement is ignored while landed, so every liftoff starts from a centred aim.
       if (craft.status === 'landed') input.centre();
+      const wasCrashed = craft.status === 'crashed';
       stepCraft(craft, input.snapshot(), terrain, STEP, physics);
+      if (!wasCrashed && craft.status === 'crashed') {
+        // The mesh still holds its last pose, which is where the pieces start from.
+        effectsView.explode(craftView.craft.geometry, craftView.craft.matrixWorld, craft.vel);
+      }
+      for (const impact of stepCannon(cannon, craft, input.fire, terrain, STEP, physics)) effectsView.impact(impact);
       accumulator -= STEP;
     }
   }
@@ -144,11 +170,14 @@ function frame(now: number) {
   terrainView.update(renderPos.x, renderPos.z);
   treeView.update(renderPos.x, renderPos.z);
   craftView.update(craft, renderPos);
-  exhaustView.update(craft, craftView.craft.matrixWorld, input.locked ? elapsed : 0);
+  const effectsDt = input.locked ? elapsed : 0;
+  exhaustView.update(craft, craftView.craft.matrixWorld, effectsDt);
+  bulletView.update(cannon.bullets);
+  effectsView.update(effectsDt, physics.gravity);
   renderer.render(scene, camera);
 
   const ground = terrain.heightAt(craft.pos.x, craft.pos.z);
-  const speed = Math.hypot(craft.vel.x, craft.vel.y, craft.vel.z);
+  const speed = craft.status === 'crashed' ? 0 : Math.hypot(craft.vel.x, craft.vel.y, craft.vel.z);
   hud.textContent = [
     `FUEL  ${'#'.repeat(Math.ceil((craft.fuel / physics.maxFuel) * 20)).padEnd(20, '.')}`,
     `ALT   ${(craft.pos.y - ground).toFixed(1)}`,
