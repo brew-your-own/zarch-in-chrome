@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { proximityLevel, SoundEngine } from './audio/sound';
 import { MouseInput } from './input';
-import { BulletView } from './render/bulletView';
+import { BulletView, FIGHTER_TRACER } from './render/bulletView';
 import { CraftView } from './render/craftView';
 import { EffectsView } from './render/effectsView';
 import { ExhaustView } from './render/exhaustView';
+import { FighterView } from './render/fighterView';
 import { SUN } from './render/lighting';
 import { Palette } from './render/palette';
 import { SeederView } from './render/seederView';
@@ -15,7 +16,7 @@ import { loadSettings, saveSettings } from './settings';
 import { createAutopilot, stepAutopilot, toggleAutopilot } from './sim/autopilot';
 import { createCannon, stepCannon } from './sim/cannon';
 import { spawnCraft, stepCraft } from './sim/craft';
-import { createEnemies, isOverrun, nearestSeederDistance, stepEnemies } from './sim/enemies';
+import { createEnemies, isOverrun, nearestEnemyDistance, stepEnemies } from './sim/enemies';
 import { buildMap, findMap } from './sim/maps';
 import type { Terrain } from './sim/terrain';
 import { GameOverScreen, recordScore, type GameOverStats } from './ui/gameOver';
@@ -41,6 +42,11 @@ let terrain: Terrain = buildMap(findMap(settings.mapId));
 const craft = spawnCraft(terrain, physics);
 const cannon = createCannon();
 const autopilot = createAutopilot();
+const startingLives = () => Math.max(1, Math.round(settings.enemies.lives));
+/** Craft left, including the one flying. Reaching 0 ends the game once the wreck has burned a moment. */
+let lives = startingLives();
+/** With no lives left, the game ends this many seconds before the wreck would respawn. */
+const LAST_WRECK_PAUSE = 0.6;
 /** Set when the autopilot hands back control, so a thrust button still held doesn't take straight off again. */
 let thrustHeldOver = false;
 const sound = new SoundEngine(settings.sound);
@@ -68,6 +74,8 @@ let craftView: CraftView;
 let exhaustView: ExhaustView;
 let treeView: TreeView;
 let bulletView: BulletView;
+let shotView: BulletView;
+let fighterView: FighterView;
 let effectsView: EffectsView;
 let seederView: SeederView;
 let skyView: SkyView;
@@ -87,6 +95,8 @@ function buildViews() {
   craftView = new CraftView(terrain, physics);
   exhaustView = new ExhaustView(terrain, physics, plume);
   bulletView = new BulletView();
+  shotView = new BulletView(FIGHTER_TRACER);
+  fighterView = new FighterView(terrain);
   effectsView = new EffectsView(terrain);
   seederView = new SeederView(terrain);
   skyView = new SkyView(terrain.size);
@@ -103,6 +113,10 @@ function buildViews() {
     exhaustView.points,
     bulletView.tracers,
     bulletView.heads,
+    shotView.tracers,
+    shotView.heads,
+    fighterView.shadows,
+    fighterView.fighters,
     seederView.shadows,
     seederView.seeders,
     seederView.spores,
@@ -117,7 +131,7 @@ let started = false;
 /** Set when the virus takes over; the sim stays frozen until a new game starts. */
 let gameOver: { stats: GameOverStats; newBest: boolean } | null = null;
 
-const showPanel = () => panel.show(terrain, palette, craft.pos, started && !gameOver, enemies.seeders);
+const showPanel = () => panel.show(terrain, palette, craft.pos, started && !gameOver, [...enemies.seeders, ...enemies.fighters]);
 
 const input = new MouseInput(canvas, (locked) => {
   if (locked) {
@@ -137,14 +151,15 @@ function newGame(mapId: string) {
   Object.assign(craft, spawnCraft(terrain, physics));
   Object.assign(cannon, createCannon());
   Object.assign(autopilot, createAutopilot());
+  lives = startingLives();
   Object.assign(enemies, newEnemies());
   buildViews();
   resetMotion();
   gameOver = null;
 }
 
-function endGame() {
-  const stats = { score: enemies.score, wave: enemies.wave, infected: terrain.infectedFraction() };
+function endGame(reason: GameOverStats['reason']) {
+  const stats = { reason, score: enemies.score, wave: enemies.wave, infected: terrain.infectedFraction() };
   gameOver = { stats, newBest: recordScore(stats.score) };
   gameOverScreen.show(gameOver.stats, gameOver.newBest);
   document.exitPointerLock();
@@ -190,7 +205,7 @@ document.addEventListener('keydown', (e) => {
 // Setting `zarch.input.locked = true` runs the simulation without pointer lock.
 if (import.meta.env.DEV) {
   Object.assign(window, {
-    zarch: { craft, cannon, autopilot, enemies, input, settings, sound, get terrain() { return terrain; }, get gameOver() { return gameOver; } },
+    zarch: { craft, cannon, autopilot, enemies, input, settings, sound, get lives() { return lives; }, get terrain() { return terrain; }, get gameOver() { return gameOver; } },
   });
 }
 
@@ -223,12 +238,24 @@ function distanceFromCraft(pos: { x: number; z: number }): number {
 /** Proximity alarm level (0-1) for the nearest seeder; silent while paused, over or wrecked. */
 function proximityAlert(): number {
   if (!input.locked || gameOver || craft.status === 'crashed') return 0;
-  return proximityLevel(nearestSeederDistance(enemies, craft.pos, terrain), settings.sound.alertDistance);
+  return proximityLevel(nearestEnemyDistance(enemies, craft.pos, terrain), settings.sound.alertDistance);
+}
+
+/**
+ * How tense the music should be, 0-1: a base while flying, more once enemies are about,
+ * as the virus spreads, as an enemy closes in (the proximity alarm level) and on the last life.
+ */
+function musicIntensity(alert: number): number {
+  if (!input.locked || gameOver) return 0;
+  const virus = Math.min(1, terrain.infectedFraction() / Math.max(0.01, settings.enemies.overrunAt));
+  const enemiesAbout = enemies.seeders.length + enemies.fighters.length > 0 ? 0.15 : 0;
+  return 0.2 + enemiesAbout + 0.35 * virus + 0.4 * alert + (lives === 1 ? 0.1 : 0);
 }
 
 /** Continuous and per-shot sounds for this frame (explosions play from the sim events). */
-function playSounds(alert: number) {
+function playSounds(alert: number, dt: number) {
   sound.update();
+  sound.music(musicIntensity(alert), !input.locked || gameOver !== null, dt);
   sound.thruster(input.locked && !gameOver && craft.thrusting);
   sound.proximity(alert);
   if (cannon.shots < shotsHeard) shotsHeard = 0; // a new game reset the cannon
@@ -271,18 +298,27 @@ function frame(now: number) {
         }
       }
       for (const event of stepEnemies(enemies, craft, cannon.bullets, terrain, STEP, settings.enemies, physics)) {
-        if (event.type !== 'seederDestroyed') continue;
-        const { geometry, matrix } = seederView.shape(event.seeder, craft.pos, simTime);
-        effectsView.explode(geometry, matrix, event.seeder.vel);
-        sound.explosion('seeder', distanceFromCraft(event.seeder.pos));
+        if (event.type === 'seederDestroyed') {
+          const { geometry, matrix } = seederView.shape(event.seeder, craft.pos, simTime);
+          effectsView.explode(geometry, matrix, event.seeder.vel);
+          sound.explosion('seeder', distanceFromCraft(event.seeder.pos));
+        } else if (event.type === 'fighterDestroyed') {
+          const { geometry, matrix } = fighterView.shape(event.fighter, craft.pos);
+          effectsView.explode(geometry, matrix, event.fighter.vel);
+          sound.explosion('fighter', distanceFromCraft(event.fighter.pos));
+        } else if (event.type === 'fighterFired') {
+          sound.enemyShot(distanceFromCraft(event.pos));
+        }
       }
       if (!wasCrashed && craft.status === 'crashed') {
         // The mesh still holds its last pose, which is where the pieces start from.
         effectsView.explode(craftView.craft.geometry, craftView.craft.matrixWorld, craft.vel);
         sound.explosion('craft');
+        lives--;
       }
       accumulator -= STEP;
-      if (isOverrun(terrain, settings.enemies)) endGame();
+      if (isOverrun(terrain, settings.enemies)) endGame('virus');
+      else if (lives <= 0 && craft.status === 'crashed' && craft.respawnIn <= LAST_WRECK_PAUSE) endGame('lives');
     }
   }
 
@@ -302,13 +338,15 @@ function frame(now: number) {
   const effectsDt = input.locked ? elapsed : 0;
   exhaustView.update(craft, craftView.craft.matrixWorld, effectsDt);
   bulletView.update(cannon.bullets);
+  shotView.update(enemies.shots, { terrain, focus: renderPos });
+  fighterView.update(enemies, renderPos, effectsDt);
   seederView.update(enemies, renderPos, simTime);
   effectsView.update(effectsDt, physics.gravity);
   renderer.render(scene, camera);
 
   const alert = proximityAlert();
-  hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, settings.autopilot, alert, effectsDt);
-  playSounds(alert);
+  hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, settings.autopilot, alert, lives, effectsDt);
+  playSounds(alert, elapsed);
   scanner.update(terrain, palette, craft, enemies, settings.sound.alertDistance, alert, elapsed);
 
   requestAnimationFrame(frame);

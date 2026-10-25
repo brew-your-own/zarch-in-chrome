@@ -43,11 +43,19 @@ const ENEMY_SLIDERS: SliderSpec<Settings['enemies']>[] = [
   { key: 'seederSpeed', label: 'Seeder speed', min: 0.5, max: 8, step: 0.1, unit: 'u/s' },
   { key: 'sporeInterval', label: 'Spore interval', min: 0.3, max: 6, step: 0.1, unit: 's' },
   { key: 'virusSpread', label: 'Virus spread', min: 0, max: 20, step: 0.5, unit: '%/s', scale: 100 },
+  { key: 'fighters', label: 'Fighters per wave', min: 0, max: 3, step: 0.5, unit: '× (wave − 1)' },
+  { key: 'fighterSpeed', label: 'Fighter speed', min: 1, max: 10, step: 0.1, unit: 'u/s' },
+  { key: 'fighterFireInterval', label: 'Fighter fire interval', min: 0.3, max: 5, step: 0.1, unit: 's' },
+];
+
+const GAME_SLIDERS: SliderSpec<Settings['enemies']>[] = [
+  { key: 'lives', label: 'Lives', min: 1, max: 9, step: 1 },
   { key: 'overrunAt', label: 'Game over at', min: 10, max: 100, step: 5, unit: '% land', scale: 100 },
 ];
 
 const SOUND_SLIDERS: SliderSpec<Settings['sound']>[] = [
   { key: 'volume', label: 'Volume', min: 0, max: 100, step: 5, unit: '%', scale: 100 },
+  { key: 'music', label: 'Music', min: 0, max: 100, step: 5, unit: '%', scale: 100 },
   { key: 'alertDistance', label: 'Proximity alarm', min: 0, max: 30, step: 1, unit: 'tiles' },
 ];
 
@@ -138,6 +146,9 @@ export class SettingsPanel {
     for (const spec of PHYSICS_SLIDERS) tuning.append(this.slider(settings.physics, spec));
     tuning.append(this.ratio, el('h2', undefined, 'Cannon'));
     for (const spec of CANNON_SLIDERS) tuning.append(this.slider(settings.physics, spec));
+    tuning.append(el('h2', undefined, 'Game'));
+    for (const spec of GAME_SLIDERS) tuning.append(this.slider(settings.enemies, spec));
+    tuning.append(el('p', 'note', 'Lives apply from the next game.'));
     tuning.append(el('h2', undefined, 'Enemies'));
     for (const spec of ENEMY_SLIDERS) tuning.append(this.slider(settings.enemies, spec));
     tuning.append(el('h2', undefined, 'Assists'));

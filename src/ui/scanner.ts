@@ -10,7 +10,7 @@ const TERRAIN_REFRESH = 0.5;
 /**
  * Live map in a corner of the screen: the whole wrapping world centred on the craft,
  * north up like the camera. The terrain layer is cached and refreshed periodically;
- * the craft, pad and seeders are redrawn every frame.
+ * the craft, pad, seeders and fighters are redrawn every frame.
  */
 export class Scanner {
   private readonly ctx: CanvasRenderingContext2D;
@@ -82,6 +82,25 @@ export class Scanner {
       ctx.fillRect(x - 3, y - 3, 6, 6);
       ctx.fillStyle = '#e050ff';
       ctx.fillRect(x - 2, y - 2, 4, 4);
+    }
+
+    // Fighters: small red darts along their heading.
+    for (const f of enemies.fighters) {
+      const [x, y] = toScreen(f.pos.x, f.pos.z);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(f.heading);
+      ctx.beginPath();
+      ctx.moveTo(0, -5);
+      ctx.lineTo(4, 4);
+      ctx.lineTo(-4, 4);
+      ctx.closePath();
+      ctx.fillStyle = '#ff3030';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fill();
+      ctx.restore();
     }
 
     // The craft: an arrow along its heading (0 = north = up).

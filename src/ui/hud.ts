@@ -34,6 +34,7 @@ export class Hud {
   private readonly fuelText: HTMLSpanElement;
   private readonly flight: HTMLDivElement;
   private readonly game: HTMLDivElement;
+  private readonly lives: HTMLSpanElement;
   private readonly virus: HTMLDivElement;
   private readonly arrow: HTMLSpanElement;
   private readonly padText: HTMLSpanElement;
@@ -51,6 +52,9 @@ export class Hud {
     this.fuelText = el('span', 'hud-value', fuel);
     this.flight = el('div', 'hud-row', root);
     this.game = el('div', 'hud-row', root);
+    const lives = el('div', 'hud-row', root);
+    el('span', 'hud-label', lives).textContent = 'LIVES';
+    this.lives = el('span', 'hud-lives', lives);
     this.virus = el('div', 'hud-row', root);
     const compass = el('div', 'hud-row', root);
     el('span', 'hud-label', compass).textContent = 'PAD';
@@ -75,6 +79,8 @@ export class Hud {
     autopilotSettings: AutopilotSettings,
     /** Proximity alarm level, 0-1. */
     alert: number,
+    /** Craft left, including the one flying. */
+    lives: number,
     dt: number,
   ): void {
     const fuel = Math.max(0, Math.min(1, craft.fuel / physics.maxFuel));
@@ -86,7 +92,10 @@ export class Hud {
     const ground = terrain.heightAt(craft.pos.x, craft.pos.z);
     const speed = craft.status === 'crashed' ? 0 : Math.hypot(craft.vel.x, craft.vel.y, craft.vel.z);
     this.flight.textContent = `ALT ${(craft.pos.y - ground).toFixed(1).padStart(5)}   SPEED ${speed.toFixed(1).padStart(4)}`;
-    this.game.textContent = `SCORE ${enemies.score}   WAVE ${enemies.wave} (${enemies.seeders.length} left)`;
+    this.game.textContent = `SCORE ${enemies.score}   WAVE ${enemies.wave} (${enemies.seeders.length + enemies.fighters.length} left)`;
+    // One marker per craft left; the flying one counts until it is wrecked.
+    this.lives.textContent = '▲ '.repeat(Math.max(0, lives)).trim() || '—';
+    this.lives.classList.toggle('alert', lives <= 1);
     const infected = terrain.infectedFraction();
     this.virus.textContent = `VIRUS ${(infected * 100).toFixed(1)}% / ${Math.round(rules.overrunAt * 100)}%`;
     this.virus.classList.toggle('alert', infected >= rules.overrunAt * VIRUS_WARNING);

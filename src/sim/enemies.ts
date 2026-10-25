@@ -1,5 +1,6 @@
 import { crashCraft, CRAFT_RADIUS, type CraftState, type Physics, type Vec3 } from './craft';
 import type { Bullet } from './cannon';
+import { FIGHTER_POINTS, FIGHTER_RADIUS, flyFighter, moveShot, spawnFighter, type EnemyShot, type Fighter } from './fighters';
 import { createRng } from './rng';
 import type { Terrain } from './terrain';
 import { stepVirus } from './virus';
@@ -16,6 +17,14 @@ export interface EnemySettings {
   virusSpread: number;
   /** Share of the land (0-1) the virus must infect to end the game. */
   overrunAt: number;
+  /** Fighters per wave after the first: wave n brings round(fighters × (n − 1)). 0 means none. */
+  fighters: number;
+  /** Fighter top speed (units/s). */
+  fighterSpeed: number;
+  /** Mean seconds between one fighter's shots. */
+  fighterFireInterval: number;
+  /** Craft per game; losing the last one ends it. */
+  lives: number;
 }
 
 export const DEFAULT_ENEMIES: Readonly<EnemySettings> = Object.freeze({
@@ -24,6 +33,10 @@ export const DEFAULT_ENEMIES: Readonly<EnemySettings> = Object.freeze({
   sporeInterval: 1.5,
   virusSpread: 0.02,
   overrunAt: 0.6,
+  fighters: 1,
+  fighterSpeed: 4.5,
+  fighterFireInterval: 1.4,
+  lives: 3,
 });
 
 /** Whether the virus has taken over enough land to end the game. */
@@ -31,10 +44,10 @@ export function isOverrun(terrain: Terrain, settings: EnemySettings): boolean {
   return terrain.infectedFraction() >= settings.overrunAt;
 }
 
-/** Horizontal distance (wrapped) from `pos` to the nearest seeder, or Infinity if there is none. */
-export function nearestSeederDistance(enemies: EnemyState, pos: { x: number; z: number }, terrain: Terrain): number {
+/** Horizontal distance (wrapped) from `pos` to the nearest seeder or fighter, or Infinity if there is none. */
+export function nearestEnemyDistance(enemies: EnemyState, pos: { x: number; z: number }, terrain: Terrain): number {
   let nearest = Infinity;
-  for (const s of enemies.seeders) {
+  for (const s of [...enemies.seeders, ...enemies.fighters]) {
     nearest = Math.min(nearest, Math.hypot(terrain.delta(pos.x, s.pos.x), terrain.delta(pos.z, s.pos.z)));
   }
   return nearest;
@@ -71,6 +84,9 @@ export interface Spore {
 export interface EnemyState {
   seeders: Seeder[];
   spores: Spore[];
+  fighters: Fighter[];
+  /** Fighters' shots in flight. */
+  shots: EnemyShot[];
   wave: number;
   score: number;
   /** Seconds until the next wave, once the current one is cleared. */
@@ -81,16 +97,21 @@ export interface EnemyState {
 
 export type EnemyEvent =
   | { type: 'seederDestroyed'; seeder: Seeder; byBullet: boolean }
+  | { type: 'fighterDestroyed'; fighter: Fighter; byBullet: boolean }
+  | { type: 'fighterFired'; pos: Vec3 }
+  /** A fighter's shot wrecked the craft. */
+  | { type: 'craftShot'; pos: Vec3 }
   | { type: 'sporeLanded'; pos: Vec3; infected: boolean }
   | { type: 'waveStarted'; wave: number };
 
 export function createEnemies(seed: number): EnemyState {
-  return { seeders: [], spores: [], wave: 0, score: 0, nextWaveIn: 0, nextId: 1, rng: createRng(seed) };
+  return { seeders: [], spores: [], fighters: [], shots: [], wave: 0, score: 0, nextWaveIn: 0, nextId: 1, rng: createRng(seed) };
 }
 
 /**
- * Advances seeders, spores and the virus by `dt`. Bullets that hit a seeder are removed
- * from `bullets`; a seeder touching the craft wrecks both. Returns what happened, for the
+ * Advances seeders, fighters, their spores and shots, and the virus by `dt`. Bullets that
+ * hit an enemy are removed from `bullets`; an enemy touching the craft wrecks both, and so
+ * does a fighter's shot hitting it. Returns what happened, for the
  * renderer (explosions) and the HUD.
  */
 export function stepEnemies(
@@ -104,18 +125,38 @@ export function stepEnemies(
 ): EnemyEvent[] {
   const events: EnemyEvent[] = [];
 
-  if (enemies.seeders.length === 0 && settings.firstWave >= 1) {
+  if (enemies.seeders.length === 0 && enemies.fighters.length === 0 && settings.firstWave >= 1) {
     enemies.nextWaveIn -= dt;
     if (enemies.nextWaveIn <= 0) {
       enemies.wave++;
       const count = Math.round(settings.firstWave) + enemies.wave - 1;
       for (let k = 0; k < count; k++) enemies.seeders.push(spawnSeeder(enemies, craft, terrain, settings));
+      const fighters = Math.round(Math.max(0, settings.fighters) * (enemies.wave - 1));
+      for (let k = 0; k < fighters; k++) {
+        const { x, z } = spawnPoint(enemies.rng, craft, terrain);
+        enemies.fighters.push(spawnFighter(enemies.nextId++, x, z, terrain, enemies.rng));
+      }
       enemies.nextWaveIn = WAVE_DELAY;
       events.push({ type: 'waveStarted', wave: enemies.wave });
     }
   }
 
   for (const s of enemies.seeders) fly(s, enemies, terrain, dt, settings);
+  for (const f of enemies.fighters) {
+    const shot = flyFighter(f, craft, terrain, dt, settings, physics.maxAltitude, enemies.rng);
+    if (shot) {
+      enemies.shots.push(shot);
+      events.push({ type: 'fighterFired', pos: { ...f.pos } });
+    }
+  }
+  enemies.shots = enemies.shots.filter((shot) => {
+    const outcome = moveShot(shot, craft, terrain, dt);
+    if (outcome === 'hitCraft') {
+      crashCraft(craft, physics);
+      events.push({ type: 'craftShot', pos: shot.pos });
+    }
+    return outcome === 'flying';
+  });
 
   // Spores fall and infect the tile they land on.
   enemies.spores = enemies.spores.filter((spore) => {
@@ -149,6 +190,21 @@ export function stepEnemies(
     }
     return true;
   });
+  enemies.fighters = enemies.fighters.filter((f) => {
+    const hit = bullets.findIndex((b) => near(terrain, b.pos, f.pos, FIGHTER_RADIUS, FIGHTER_RADIUS));
+    if (hit >= 0) {
+      bullets.splice(hit, 1);
+      enemies.score += FIGHTER_POINTS;
+      events.push({ type: 'fighterDestroyed', fighter: f, byBullet: true });
+      return false;
+    }
+    if (craft.status !== 'crashed' && near(terrain, craft.pos, f.pos, FIGHTER_RADIUS + CRAFT_RADIUS, FIGHTER_RADIUS)) {
+      crashCraft(craft, physics);
+      events.push({ type: 'fighterDestroyed', fighter: f, byBullet: false });
+      return false;
+    }
+    return true;
+  });
 
   return events;
 }
@@ -160,8 +216,8 @@ function near(terrain: Terrain, a: Vec3, b: Vec3, radius: number, height: number
   return dx * dx + dz * dz < radius * radius && Math.abs(a.y - b.y) < height;
 }
 
-function spawnSeeder(enemies: EnemyState, craft: CraftState, terrain: Terrain, settings: EnemySettings): Seeder {
-  const rng = enemies.rng;
+/** A random point at least `SPAWN_DISTANCE` from the craft (or the last one tried). */
+function spawnPoint(rng: () => number, craft: CraftState, terrain: Terrain): { x: number; z: number } {
   let x = 0;
   let z = 0;
   for (let tries = 0; tries < 50; tries++) {
@@ -169,6 +225,12 @@ function spawnSeeder(enemies: EnemyState, craft: CraftState, terrain: Terrain, s
     z = rng() * terrain.size;
     if (Math.hypot(terrain.delta(craft.pos.x, x), terrain.delta(craft.pos.z, z)) >= SPAWN_DISTANCE) break;
   }
+  return { x, z };
+}
+
+function spawnSeeder(enemies: EnemyState, craft: CraftState, terrain: Terrain, settings: EnemySettings): Seeder {
+  const rng = enemies.rng;
+  const { x, z } = spawnPoint(rng, craft, terrain);
   return {
     id: enemies.nextId++,
     pos: { x, y: terrain.heightAt(x, z) + SEEDER_CRUISE, z },

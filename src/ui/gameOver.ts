@@ -22,6 +22,8 @@ export function recordScore(score: number): boolean {
 }
 
 export interface GameOverStats {
+  /** What ended the game: the virus took over, or the last craft was lost. */
+  reason: 'virus' | 'lives';
   score: number;
   wave: number;
   infected: number;
@@ -34,10 +36,11 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
   return node;
 }
 
-/** The end screen shown when the virus takes over. */
+/** The end screen, shown when the virus takes over or the last life is lost. */
 export class GameOverScreen {
   private readonly stats = el('div', 'gameover-stats');
   private readonly best = el('p', 'gameover-best');
+  private readonly reason = el('p', 'gameover-reason');
 
   constructor(
     private readonly root: HTMLElement,
@@ -50,12 +53,13 @@ export class GameOverScreen {
     settings.addEventListener('click', handlers.onSettings);
     const buttons = el('div', 'gameover-buttons');
     buttons.append(again, settings);
-    panel.append(el('h1', undefined, 'GAME OVER'), el('p', 'gameover-reason', 'The virus has taken over the land.'), this.stats, this.best, buttons);
+    panel.append(el('h1', undefined, 'GAME OVER'), this.reason, this.stats, this.best, buttons);
     root.append(panel);
     this.hide();
   }
 
-  show({ score, wave, infected }: GameOverStats, newBest: boolean): void {
+  show({ reason, score, wave, infected }: GameOverStats, newBest: boolean): void {
+    this.reason.textContent = reason === 'virus' ? 'The virus has taken over the land.' : 'Your last craft has been destroyed.';
     this.stats.replaceChildren(
       ...[
         ['SCORE', String(score)],

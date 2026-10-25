@@ -1,12 +1,19 @@
+import { MusicPlayer } from './music';
+
 /** Sound knobs edited from the settings panel. */
 export interface SoundSettings {
   /** Master volume, 0-1. 0 is silent. */
   volume: number;
   /** Distance (tiles) at which the proximity alarm starts for an approaching seeder. 0 turns it off. */
   alertDistance: number;
+  /** Music volume relative to the master volume, 0-1. 0 is off. */
+  music: number;
 }
 
-export const DEFAULT_SOUND: Readonly<SoundSettings> = Object.freeze({ volume: 0.6, alertDistance: 10 });
+export const DEFAULT_SOUND: Readonly<SoundSettings> = Object.freeze({ volume: 0.6, alertDistance: 10, music: 0.5 });
+
+/** While paused or after game over, the music keeps playing at this share of its volume. */
+const MUSIC_QUIET = 0.4;
 
 /** Within this distance (tiles) of a seeder the proximity alarm is at full volume. */
 export const FULL_ALERT_DISTANCE = 3;
@@ -33,7 +40,7 @@ export function attenuation(distance: number): number {
 }
 
 /** How big each kind of explosion sounds. */
-export const EXPLOSION_SIZE = { craft: 1, seeder: 0.7, tree: 0.35 } as const;
+export const EXPLOSION_SIZE = { craft: 1, fighter: 0.8, seeder: 0.7, tree: 0.35 } as const;
 export type ExplosionKind = keyof typeof EXPLOSION_SIZE;
 
 /** Shape of an explosion of `size` (0-1): louder, longer and deeper as it grows. */
@@ -65,6 +72,8 @@ export class SoundEngine {
   private thrustOn = false;
   private alertGain?: GainNode;
   private alertLevel = 0;
+  private musicPlayer?: MusicPlayer;
+  private musicGain?: GainNode;
 
   constructor(private readonly settings: SoundSettings) {}
 
@@ -98,6 +107,16 @@ export class SoundEngine {
     if (!this.ctx || !this.alertGain || Math.abs(level - this.alertLevel) < 0.01) return;
     this.alertLevel = level;
     this.alertGain.gain.setTargetAtTime(level * ALERT_GAIN, this.ctx.currentTime, 0.08);
+  }
+
+  /**
+   * Steers the soundtrack: `intensity` (0-1) decides which layers play and how tense it is,
+   * `quiet` turns it down (pause, game over). Call every frame with the frame time.
+   */
+  music(intensity: number, quiet: boolean, dt: number): void {
+    if (!this.ctx || !this.musicPlayer || !this.musicGain) return;
+    this.musicPlayer.update(intensity, dt);
+    this.musicGain.gain.setTargetAtTime(this.settings.music * (quiet ? MUSIC_QUIET : 1), this.ctx.currentTime, 0.3);
   }
 
   /** One cannon shot: a falling square-wave blip plus a noise click. */
@@ -148,6 +167,26 @@ export class SoundEngine {
       osc.start(t + delay);
       osc.stop(t + delay + 0.33);
     }
+  }
+
+  /** A fighter's shot, `distance` tiles away: a lower, harsher zap than the craft's cannon. */
+  enemyShot(distance: number): void {
+    const { ctx, master } = this;
+    if (!ctx || !master) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(520, t);
+    osc.frequency.exponentialRampToValueAtTime(90, t + 0.16);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1800;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.16 * attenuation(distance), t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    osc.connect(lp).connect(gain).connect(master);
+    osc.start(t);
+    osc.stop(t + 0.19);
   }
 
   /** An explosion `distance` tiles from the craft. */
@@ -251,5 +290,11 @@ export class SoundEngine {
     tone.connect(soften).connect(this.alertGain).connect(this.master);
     tone.start();
     steps.start();
+
+    this.musicPlayer = new MusicPlayer(ctx, this.noise);
+    this.musicGain = ctx.createGain();
+    this.musicGain.gain.value = 0;
+    this.musicPlayer.output.connect(this.musicGain).connect(this.master);
+    this.musicPlayer.start();
   }
 }
