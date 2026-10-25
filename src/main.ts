@@ -8,6 +8,7 @@ import { ExhaustView } from './render/exhaustView';
 import { SUN } from './render/lighting';
 import { Palette } from './render/palette';
 import { SeederView } from './render/seederView';
+import { SkyView } from './render/skyView';
 import { TerrainView } from './render/terrainView';
 import { TreeView } from './render/treeView';
 import { loadSettings, saveSettings } from './settings';
@@ -49,7 +50,6 @@ let simTime = 0;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x000000);
 scene.add(new THREE.AmbientLight(0xffffff, 1.2));
 const sun = new THREE.DirectionalLight(0xffffff, 2);
 sun.position.set(SUN.x, SUN.y, SUN.z);
@@ -66,6 +66,7 @@ let treeView: TreeView;
 let bulletView: BulletView;
 let effectsView: EffectsView;
 let seederView: SeederView;
+let skyView: SkyView;
 let palette!: Palette; // assigned by buildViews()
 let sceneObjects: (THREE.Mesh | THREE.Points | THREE.LineSegments)[] = [];
 
@@ -84,7 +85,12 @@ function buildViews() {
   bulletView = new BulletView();
   effectsView = new EffectsView(terrain);
   seederView = new SeederView(terrain);
+  skyView = new SkyView(terrain.size);
+  // The dome fills the background; the fog fades the edge of the terrain patch into its glow.
+  scene.fog = skyView.fog;
   sceneObjects = [
+    skyView.dome,
+    skyView.stars,
     terrainView.mesh,
     treeView.shadow,
     ...treeView.meshes,
@@ -259,6 +265,7 @@ function frame(now: number) {
   cameraY += (renderPos.y - cameraY) * Math.min(1, elapsed * CAMERA_FOLLOW_Y);
   camera.position.set(renderPos.x, cameraY, renderPos.z).add(CAMERA_OFFSET);
 
+  skyView.update(camera, renderPos.x, terrain.heightAt(renderPos.x, renderPos.z), elapsed);
   terrainView.update(renderPos.x, renderPos.z);
   treeView.update(renderPos.x, renderPos.z);
   craftView.update(craft, renderPos);
