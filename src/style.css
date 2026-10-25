@@ -72,3 +72,10 @@ html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
 .reset:hover { border-color: var(--accent); }
 
 .help { margin: 20px 0 0; color: var(--muted); text-align: center; }
+
+.presets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.preset {
+  padding: 4px 10px; color: var(--text); background: transparent; border: 1px solid var(--line);
+}
+.preset:hover { border-color: var(--accent); }
+.preset.selected { color: #000; background: var(--accent); border-color: var(--accent); }

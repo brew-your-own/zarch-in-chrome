@@ -1,4 +1,5 @@
 import { drawMinimap } from '../render/minimap';
+import { COLOUR_PRESETS, DEFAULT_COLOURS, Palette } from '../render/palette';
 import { DEFAULT_PLUME } from '../render/exhaustView';
 import { DEFAULT_PHYSICS } from '../sim/craft';
 import { buildMap, MAPS } from '../sim/maps';
@@ -36,10 +37,16 @@ const PLUME_SLIDERS: SliderSpec<Settings['plume']>[] = [
   { key: 'size', label: 'Particle size', min: 0.02, max: 0.3, step: 0.01 },
 ];
 
+const COLOUR_SLIDERS: SliderSpec<Settings['colours']>[] = [
+  { key: 'autumn', label: 'Autumn leaves', min: 0, max: 100, step: 1, unit: '%', scale: 100 },
+  { key: 'grassTone', label: 'Grass tone', min: 0, max: 100, step: 1, unit: '%', scale: 100 },
+  { key: 'patches', label: 'Ground patches', min: 0, max: 100, step: 1, unit: '%', scale: 100 },
+];
+
 export interface SettingsPanelHandlers {
   onFly: () => void;
   onMapChange: (mapId: string) => void;
-  /** Called after any physics/plume value changes. */
+  /** Called after any physics/plume/colour value changes. */
   onChange: () => void;
 }
 
@@ -64,6 +71,9 @@ export class SettingsPanel {
   private readonly mapCards = new Map<string, HTMLButtonElement>();
   private readonly refreshers: (() => void)[] = [];
   private readonly ratio = el('p', 'note');
+  private readonly thumbs: { canvas: HTMLCanvasElement; terrain: Terrain; palette: Palette }[] = [];
+  private readonly presetButtons = new Map<keyof typeof COLOUR_PRESETS, HTMLButtonElement>();
+  private shown?: { terrain: Terrain; palette: Palette; marker: { x: number; z: number } };
 
   constructor(
     private readonly root: HTMLElement,
@@ -83,7 +93,8 @@ export class SettingsPanel {
       const card = el('button', 'map-card');
       const thumb = el('canvas');
       thumb.width = thumb.height = 96;
-      drawMinimap(thumb, buildMap(preset));
+      const terrain = buildMap(preset);
+      this.thumbs.push({ canvas: thumb, terrain, palette: new Palette(terrain, settings.colours) });
       card.append(thumb, el('span', undefined, preset.name));
       card.addEventListener('click', () => {
         if (preset.id === this.settings.mapId) return;
@@ -100,10 +111,25 @@ export class SettingsPanel {
     for (const spec of PHYSICS_SLIDERS) tuning.append(this.slider(settings.physics, spec));
     tuning.append(this.ratio, el('h2', undefined, 'Thruster plume'));
     for (const spec of PLUME_SLIDERS) tuning.append(this.slider(settings.plume, spec));
+    tuning.append(el('h2', undefined, 'Colours'));
+    const presets = el('div', 'presets');
+    for (const [id, preset] of Object.entries(COLOUR_PRESETS) as [keyof typeof COLOUR_PRESETS, (typeof COLOUR_PRESETS)[keyof typeof COLOUR_PRESETS]][]) {
+      const button = el('button', 'preset', preset.name);
+      button.addEventListener('click', () => {
+        Object.assign(settings.colours, preset.colours);
+        this.refresh();
+        handlers.onChange();
+      });
+      this.presetButtons.set(id, button);
+      presets.append(button);
+    }
+    tuning.append(presets);
+    for (const spec of COLOUR_SLIDERS) tuning.append(this.slider(settings.colours, spec));
     const reset = el('button', 'reset', 'Reset to defaults');
     reset.addEventListener('click', () => {
       Object.assign(settings.physics, DEFAULT_PHYSICS);
       Object.assign(settings.plume, DEFAULT_PLUME);
+      Object.assign(settings.colours, DEFAULT_COLOURS);
       this.refresh();
       handlers.onChange();
     });
@@ -122,10 +148,17 @@ export class SettingsPanel {
   }
 
   /** Shows the panel. `started` switches the wording from start to resume. */
-  show(terrain: Terrain, craftPos: { x: number; z: number }, started: boolean): void {
+  show(terrain: Terrain, palette: Palette, craftPos: { x: number; z: number }, started: boolean): void {
     this.status.textContent = started ? 'PAUSED' : 'Ready for launch';
-    drawMinimap(this.minimap, terrain, craftPos);
+    this.shown = { terrain, palette, marker: { x: craftPos.x, z: craftPos.z } };
+    this.drawMaps();
     this.root.classList.remove('hidden');
+  }
+
+  /** Redraws the minimap and thumbnails, e.g. after a colour change. */
+  private drawMaps(): void {
+    if (this.shown) drawMinimap(this.minimap, this.shown.terrain, this.shown.palette, this.shown.marker);
+    for (const { canvas, terrain, palette } of this.thumbs) drawMinimap(canvas, terrain, palette);
   }
 
   hide(): void {
@@ -138,6 +171,12 @@ export class SettingsPanel {
 
   private refresh(): void {
     for (const r of this.refreshers) r();
+    const c = this.settings.colours;
+    for (const [id, button] of this.presetButtons) {
+      const p = COLOUR_PRESETS[id].colours;
+      button.classList.toggle('selected', p.autumn === c.autumn && p.grassTone === c.grassTone && p.patches === c.patches);
+    }
+    this.drawMaps();
     const twr = this.settings.physics.thrust / this.settings.physics.gravity;
     this.ratio.textContent = `Thrust-to-weight ${twr.toFixed(2)}${twr <= 1 ? ' (cannot take off!)' : ''}`;
     this.ratio.classList.toggle('warn', twr <= 1);

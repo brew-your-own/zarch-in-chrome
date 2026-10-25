@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import type { Terrain, TileType } from '../sim/terrain';
+import type { Terrain } from '../sim/terrain';
+import { SUN } from './lighting';
+import type { Palette } from './palette';
 
 /** Tiles drawn around the craft. The camera looks north (-z), so more rows lie ahead. */
 export const HALF_WIDTH = 12;
@@ -10,14 +12,6 @@ const COLS = 2 * HALF_WIDTH + 1;
 const ROWS = ROWS_AHEAD + ROWS_BEHIND + 1;
 const VERTS_PER_TILE = 6;
 
-/** Two alternating shades per tile type give the classic checkerboard. */
-const PALETTE: Record<TileType, [THREE.Color, THREE.Color]> = {
-  land: [new THREE.Color(0x2f9e2f), new THREE.Color(0x3fbf3a)],
-  sea: [new THREE.Color(0x1d3fbf), new THREE.Color(0x2449d6)],
-  pad: [new THREE.Color(0x9a9a9a), new THREE.Color(0xb4b4b4)],
-};
-
-const LIGHT = new THREE.Vector3(-0.5, 1, 0.35).normalize();
 const AMBIENT = 0.45;
 
 /**
@@ -31,7 +25,12 @@ export class TerrainView {
   private readonly colors: Float32Array;
   private readonly geometry = new THREE.BufferGeometry();
 
-  constructor(private readonly terrain: Terrain) {
+  private readonly base = new THREE.Color();
+
+  constructor(
+    private readonly terrain: Terrain,
+    private readonly palette: Palette,
+  ) {
     const count = COLS * ROWS * VERTS_PER_TILE;
     this.positions = new Float32Array(count * 3);
     this.colors = new Float32Array(count * 3);
@@ -61,7 +60,7 @@ export class TerrainView {
     const shade = (base: THREE.Color, dx: number, dz: number) => {
       // Normal of a triangle with height slopes dx (along x) and dz (along z).
       const len = Math.hypot(dx, 1, dz);
-      const lambert = Math.max(0, (-dx * LIGHT.x + LIGHT.y - dz * LIGHT.z) / len);
+      const lambert = Math.max(0, (-dx * SUN.x + SUN.y - dz * SUN.z) / len);
       return tmp.copy(base).multiplyScalar(AMBIENT + (1 - AMBIENT) * lambert);
     };
 
@@ -71,7 +70,7 @@ export class TerrainView {
         const h10 = t.vertexHeight(i + 1, j);
         const h01 = t.vertexHeight(i, j + 1);
         const h11 = t.vertexHeight(i + 1, j + 1);
-        const base = PALETTE[t.tileType(i, j)][(i + j) & 1]!;
+        const base = this.palette.tile(i, j, this.base);
 
         // Triangle (00, 11, 10): the fx >= fz half.
         let c = shade(base, h10 - h00, h11 - h10);

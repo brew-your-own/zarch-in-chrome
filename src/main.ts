@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { MouseInput } from './input';
 import { CraftView } from './render/craftView';
 import { ExhaustView } from './render/exhaustView';
+import { SUN } from './render/lighting';
+import { Palette } from './render/palette';
 import { TerrainView } from './render/terrainView';
 import { TreeView } from './render/treeView';
 import { loadSettings, saveSettings } from './settings';
@@ -22,7 +24,7 @@ const hud = document.querySelector<HTMLDivElement>('#hud')!;
 const overlay = document.querySelector<HTMLDivElement>('#overlay')!;
 
 const settings = loadSettings();
-const { physics, plume } = settings;
+const { physics, plume, colours } = settings;
 let terrain: Terrain = buildMap(findMap(settings.mapId));
 const craft = spawnCraft(terrain, physics);
 
@@ -32,7 +34,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
 scene.add(new THREE.AmbientLight(0xffffff, 1.2));
 const sun = new THREE.DirectionalLight(0xffffff, 2);
-sun.position.set(-0.5, 1, 0.35);
+sun.position.set(SUN.x, SUN.y, SUN.z);
 scene.add(sun);
 
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
@@ -43,6 +45,7 @@ let terrainView: TerrainView;
 let craftView: CraftView;
 let exhaustView: ExhaustView;
 let treeView: TreeView;
+let palette!: Palette; // assigned by buildViews()
 let sceneObjects: (THREE.Mesh | THREE.Points)[] = [];
 
 function buildViews() {
@@ -52,11 +55,12 @@ function buildViews() {
     (old.material as THREE.Material).dispose();
     if (old instanceof THREE.InstancedMesh) old.dispose();
   }
-  terrainView = new TerrainView(terrain);
-  treeView = new TreeView(terrain);
+  palette = new Palette(terrain, colours);
+  terrainView = new TerrainView(terrain, palette);
+  treeView = new TreeView(terrain, palette);
   craftView = new CraftView(terrain, physics);
   exhaustView = new ExhaustView(terrain, physics, plume);
-  sceneObjects = [terrainView.mesh, ...treeView.meshes, craftView.shadow, craftView.craft, exhaustView.points];
+  sceneObjects = [terrainView.mesh, treeView.shadow, ...treeView.meshes, craftView.shadow, craftView.craft, exhaustView.points];
   scene.add(...sceneObjects);
 }
 buildViews();
@@ -67,7 +71,7 @@ const input = new MouseInput(canvas, (locked) => {
     started = true;
     panel.hide();
   } else {
-    panel.show(terrain, craft.pos, started);
+    panel.show(terrain, palette, craft.pos, started);
   }
 });
 
@@ -81,10 +85,10 @@ const panel = new SettingsPanel(overlay, settings, {
     Object.assign(craft, spawnCraft(terrain, physics));
     buildViews();
     resetMotion();
-    panel.show(terrain, craft.pos, started);
+    panel.show(terrain, palette, craft.pos, started);
   },
 });
-panel.show(terrain, craft.pos, started);
+panel.show(terrain, palette, craft.pos, started);
 
 // Dev-only handle for poking at the game from the console or browser automation.
 // Setting `zarch.input.locked = true` runs the simulation without pointer lock.

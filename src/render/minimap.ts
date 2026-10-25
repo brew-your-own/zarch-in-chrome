@@ -1,45 +1,48 @@
+import * as THREE from 'three';
 import type { Terrain } from '../sim/terrain';
-import { TREE_NONE, TREE_PINE } from '../sim/trees';
+import { TREE_NONE } from '../sim/trees';
+import { SUN } from './lighting';
+import type { Palette } from './palette';
 
-const SEA = [36, 73, 214];
-const PAD = [180, 180, 180];
-const LOW = [40, 120, 40];
-const HIGH = [190, 230, 120];
-const LIGHT = { x: -0.5, y: 1, z: 0.35 };
-const LIGHT_LEN = Math.hypot(LIGHT.x, LIGHT.y, LIGHT.z);
+/** Forest pixels show the foliage colour, darkened. */
+const CANOPY_SHADE = 0.75;
 
 /**
  * Draws a top-down map of the whole terrain into `canvas`: one pixel per tile,
  * scaled up without smoothing. North (-z) is up, matching the in-game camera.
+ * Colours come from `palette`; land is hill-shaded and lightened with altitude.
  * `marker` (world x/z) is drawn as the craft's position, wrapped onto the map.
  */
-export function drawMinimap(canvas: HTMLCanvasElement, terrain: Terrain, marker?: { x: number; z: number }): void {
+export function drawMinimap(
+  canvas: HTMLCanvasElement,
+  terrain: Terrain,
+  palette: Palette,
+  marker?: { x: number; z: number },
+): void {
   const n = terrain.size;
   const tiles = document.createElement('canvas');
   tiles.width = tiles.height = n;
   const tilesCtx = tiles.getContext('2d')!;
   const image = tilesCtx.createImageData(n, n);
   const maxHeight = Math.max(1e-6, ...terrain.heights);
+  const colour = new THREE.Color();
 
   for (let j = 0; j < n; j++) {
     for (let i = 0; i < n; i++) {
-      const type = terrain.tileType(i, j);
-      let rgb: number[];
-      if (type === 'sea') rgb = SEA;
-      else if (type === 'pad') rgb = PAD;
-      else {
-        const h = terrain.heightAt(i + 0.5, j + 0.5) / maxHeight;
-        const nrm = terrain.normalAt(i + 0.7, j + 0.3);
-        const lit = 0.55 + 0.45 * Math.max(0, (nrm.x * LIGHT.x + nrm.y * LIGHT.y + nrm.z * LIGHT.z) / LIGHT_LEN);
+      palette.tile(i, j, colour, false);
+      if (terrain.tileType(i, j) === 'land') {
         const tree = terrain.treeAt(i, j);
-        // Forests read as darker patches; pines darker still.
-        const canopy = tree === TREE_NONE ? 1 : tree === TREE_PINE ? 0.5 : 0.68;
-        rgb = LOW.map((c, k) => (c + (HIGH[k]! - c) * h) * lit * canopy);
+        if (tree !== TREE_NONE) palette.foliage(i, j, tree, colour).multiplyScalar(CANOPY_SHADE);
+        const altitude = terrain.heightAt(i + 0.5, j + 0.5) / maxHeight;
+        const nrm = terrain.normalAt(i + 0.7, j + 0.3);
+        const lit = 0.55 + 0.45 * Math.max(0, nrm.x * SUN.x + nrm.y * SUN.y + nrm.z * SUN.z);
+        colour.multiplyScalar(lit * (0.75 + 0.45 * altitude));
       }
+      colour.convertLinearToSRGB();
       const o = (j * n + i) * 4;
-      image.data[o] = rgb[0]!;
-      image.data[o + 1] = rgb[1]!;
-      image.data[o + 2] = rgb[2]!;
+      image.data[o] = colour.r * 255;
+      image.data[o + 1] = colour.g * 255;
+      image.data[o + 2] = colour.b * 255;
       image.data[o + 3] = 255;
     }
   }
