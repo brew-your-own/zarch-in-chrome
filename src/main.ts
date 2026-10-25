@@ -3,6 +3,7 @@ import { MouseInput } from './input';
 import { CraftView } from './render/craftView';
 import { ExhaustView } from './render/exhaustView';
 import { TerrainView } from './render/terrainView';
+import { TreeView } from './render/treeView';
 import { loadSettings, saveSettings } from './settings';
 import { spawnCraft, stepCraft } from './sim/craft';
 import { buildMap, findMap } from './sim/maps';
@@ -41,18 +42,22 @@ camera.rotation.set(CAMERA_PITCH, 0, 0);
 let terrainView: TerrainView;
 let craftView: CraftView;
 let exhaustView: ExhaustView;
+let treeView: TreeView;
+let sceneObjects: (THREE.Mesh | THREE.Points)[] = [];
 
 function buildViews() {
-  for (const old of [terrainView?.mesh, craftView?.shadow, craftView?.craft, exhaustView?.points]) {
-    if (!old) continue;
+  for (const old of sceneObjects) {
     scene.remove(old);
     old.geometry.dispose();
     (old.material as THREE.Material).dispose();
+    if (old instanceof THREE.InstancedMesh) old.dispose();
   }
   terrainView = new TerrainView(terrain);
+  treeView = new TreeView(terrain);
   craftView = new CraftView(terrain, physics);
   exhaustView = new ExhaustView(terrain, physics, plume);
-  scene.add(terrainView.mesh, craftView.shadow, craftView.craft, exhaustView.points);
+  sceneObjects = [terrainView.mesh, ...treeView.meshes, craftView.shadow, craftView.craft, exhaustView.points];
+  scene.add(...sceneObjects);
 }
 buildViews();
 
@@ -133,6 +138,7 @@ function frame(now: number) {
   camera.position.set(renderPos.x, cameraY, renderPos.z).add(CAMERA_OFFSET);
 
   terrainView.update(renderPos.x, renderPos.z);
+  treeView.update(renderPos.x, renderPos.z);
   craftView.update(craft, renderPos);
   exhaustView.update(craft, craftView.craft.matrixWorld, input.locked ? elapsed : 0);
   renderer.render(scene, camera);

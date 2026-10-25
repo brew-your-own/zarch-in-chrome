@@ -1,4 +1,5 @@
 import type { Terrain } from './terrain';
+import { hitsTree } from './trees';
 
 export interface Vec3 {
   x: number;
@@ -59,6 +60,9 @@ export interface Physics {
   maxAltitude: number;
   respawnDelay: number;
 }
+
+/** Horizontal radius of the craft's hull, for collisions with objects. */
+export const CRAFT_RADIUS = 0.25;
 
 export const DEFAULT_PHYSICS: Readonly<Physics> = Object.freeze({
   gravity: 2.5,
@@ -162,6 +166,11 @@ export function stepCraft(
     state.vel.y = Math.min(0, state.vel.y);
   }
 
+  if (hitsTree(terrain, state.pos.x, state.pos.y, state.pos.z, CRAFT_RADIUS)) {
+    crash(state, physics);
+    return state;
+  }
+
   // Ground contact.
   const ground = terrain.heightAt(state.pos.x, state.pos.z);
   if (state.pos.y > ground) {
@@ -171,9 +180,7 @@ export function stepCraft(
 
   if (state.status === 'flying' && !isSafeTouchdown(state, terrain, physics)) {
     state.pos.y = ground;
-    state.vel = { x: 0, y: 0, z: 0 };
-    state.status = 'crashed';
-    state.respawnIn = physics.respawnDelay;
+    crash(state, physics);
     return state;
   }
 
@@ -186,6 +193,12 @@ export function stepCraft(
     state.fuel = Math.min(physics.maxFuel, state.fuel + physics.refuelRate * dt);
   }
   return state;
+}
+
+function crash(state: CraftState, physics: Physics): void {
+  state.vel = { x: 0, y: 0, z: 0 };
+  state.status = 'crashed';
+  state.respawnIn = physics.respawnDelay;
 }
 
 function isSafeTouchdown(state: CraftState, terrain: Terrain, physics: Physics): boolean {

@@ -1,4 +1,6 @@
+import { valueNoise } from './noise';
 import { createRng } from './rng';
+import { plantTrees, type TreeKind } from './trees';
 
 export type TileType = 'sea' | 'land' | 'pad';
 
@@ -22,8 +24,12 @@ const mod = (a: number, n: number) => ((a % n) + n) % n;
  *
  * Each tile is split into two triangles along the (0,0)-(1,1) diagonal;
  * `heightAt` and the renderer must agree on this split.
+ *
+ * Each tile can also hold one tree (see `trees.ts`), stored per tile in `trees`.
  */
 export class Terrain {
+  readonly trees: Uint8Array;
+
   constructor(
     readonly size: number,
     readonly heights: Float32Array,
@@ -32,9 +38,10 @@ export class Terrain {
     if (heights.length !== size * size) {
       throw new Error(`expected ${size * size} heights, got ${heights.length}`);
     }
+    this.trees = new Uint8Array(size * size);
   }
 
-  /** Builds a terrain from rows of heights (row index = z), handy for tests. */
+  /** Builds a treeless terrain from rows of heights (row index = z), handy for tests. */
   static fromRows(rows: number[][], pad: PadRect): Terrain {
     const size = rows.length;
     const heights = new Float32Array(size * size);
@@ -47,6 +54,14 @@ export class Terrain {
 
   vertexHeight(i: number, j: number): number {
     return this.heights[mod(j, this.size) * this.size + mod(i, this.size)]!;
+  }
+
+  treeAt(i: number, j: number): TreeKind {
+    return this.trees[mod(j, this.size) * this.size + mod(i, this.size)]! as TreeKind;
+  }
+
+  setTree(i: number, j: number, kind: TreeKind): void {
+    this.trees[mod(j, this.size) * this.size + mod(i, this.size)] = kind;
   }
 
   /** Height of the terrain surface at world position (x, z). */
@@ -122,39 +137,27 @@ export interface TerrainOptions {
   seaBias?: number;
   /** Weight of each finer noise octave relative to the previous one; higher is bumpier. */
   roughness?: number;
+  /** How thickly forests grow, 0-1. 0 means no trees. */
+  treeDensity?: number;
 }
 
 /** Noise cell sizes in tiles, coarsest first. */
 const OCTAVE_CELLS = [16, 8, 4];
 
 /**
- * Seeded, wrapping value-noise landscape with a flat launch pad in the middle.
+ * Seeded, wrapping value-noise landscape with a flat launch pad in the middle and forests.
  * The same seed always produces the same terrain.
  */
 export function generateTerrain(seed: number, options: TerrainOptions = {}): Terrain {
-  const { size = 64, amplitude = 4, seaBias = 0.35, roughness = 0.5 } = options;
+  const { size = 64, amplitude = 4, seaBias = 0.35, roughness = 0.5, treeDensity = 0.5 } = options;
   const rng = createRng(seed);
   const heights = new Float32Array(size * size);
   const octaves = OCTAVE_CELLS.map((cell, k) => ({ cell, weight: roughness ** k }));
   const totalWeight = octaves.reduce((sum, o) => sum + o.weight, 0);
 
   for (const { cell, weight } of octaves) {
-    if (size % cell !== 0) throw new Error(`size ${size} not divisible by ${cell}`);
-    const n = size / cell;
-    const lattice = Array.from({ length: n * n }, rng);
-    const at = (a: number, b: number) => lattice[mod(b, n) * n + mod(a, n)]!;
-    const smooth = (t: number) => t * t * (3 - 2 * t);
-    for (let j = 0; j < size; j++) {
-      for (let i = 0; i < size; i++) {
-        const ci = Math.floor(i / cell);
-        const cj = Math.floor(j / cell);
-        const tx = smooth((i % cell) / cell);
-        const tz = smooth((j % cell) / cell);
-        const top = at(ci, cj) + tx * (at(ci + 1, cj) - at(ci, cj));
-        const bottom = at(ci, cj + 1) + tx * (at(ci + 1, cj + 1) - at(ci, cj + 1));
-        heights[j * size + i]! += (weight / totalWeight) * (top + tz * (bottom - top));
-      }
-    }
+    const noise = valueNoise(rng, size, cell);
+    for (let k = 0; k < heights.length; k++) heights[k]! += (weight / totalWeight) * noise[k]!;
   }
 
   for (let k = 0; k < heights.length; k++) {
@@ -172,5 +175,7 @@ export function generateTerrain(seed: number, options: TerrainOptions = {}): Ter
     for (let i = pad.i; i <= pad.i + pad.w; i++) heights[j * size + i] = padHeight;
   }
 
-  return new Terrain(size, heights, pad);
+  const terrain = new Terrain(size, heights, pad);
+  plantTrees(terrain, seed, treeDensity);
+  return terrain;
 }

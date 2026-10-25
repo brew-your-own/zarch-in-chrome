@@ -1,4 +1,5 @@
 import type { Terrain } from '../sim/terrain';
+import { TREE_NONE, TREE_PINE } from '../sim/trees';
 
 const SEA = [36, 73, 214];
 const PAD = [180, 180, 180];
@@ -30,7 +31,10 @@ export function drawMinimap(canvas: HTMLCanvasElement, terrain: Terrain, marker?
         const h = terrain.heightAt(i + 0.5, j + 0.5) / maxHeight;
         const nrm = terrain.normalAt(i + 0.7, j + 0.3);
         const lit = 0.55 + 0.45 * Math.max(0, (nrm.x * LIGHT.x + nrm.y * LIGHT.y + nrm.z * LIGHT.z) / LIGHT_LEN);
-        rgb = LOW.map((c, k) => (c + (HIGH[k]! - c) * h) * lit);
+        const tree = terrain.treeAt(i, j);
+        // Forests read as darker patches; pines darker still.
+        const canopy = tree === TREE_NONE ? 1 : tree === TREE_PINE ? 0.5 : 0.68;
+        rgb = LOW.map((c, k) => (c + (HIGH[k]! - c) * h) * lit * canopy);
       }
       const o = (j * n + i) * 4;
       image.data[o] = rgb[0]!;

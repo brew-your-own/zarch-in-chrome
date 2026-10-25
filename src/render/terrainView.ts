@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import type { Terrain, TileType } from '../sim/terrain';
 
 /** Tiles drawn around the craft. The camera looks north (-z), so more rows lie ahead. */
-const HALF_WIDTH = 12;
-const ROWS_AHEAD = 18;
-const ROWS_BEHIND = 6;
+export const HALF_WIDTH = 12;
+export const ROWS_AHEAD = 18;
+export const ROWS_BEHIND = 6;
 
 const COLS = 2 * HALF_WIDTH + 1;
 const ROWS = ROWS_AHEAD + ROWS_BEHIND + 1;
