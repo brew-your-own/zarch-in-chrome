@@ -169,6 +169,28 @@ export class SoundEngine {
     }
   }
 
+  /** Something hitting the water `distance` tiles away; `size` 0-1 from a shard to a wreck. */
+  splash(size: number, distance: number): void {
+    const { ctx, master, noise } = this;
+    if (!ctx || !master || !noise) return;
+    const t = ctx.currentTime;
+    const length = 0.18 + 0.5 * size;
+    const src = ctx.createBufferSource();
+    src.buffer = noise;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = 1.2;
+    band.frequency.setValueAtTime(700 + 600 * size, t);
+    band.frequency.exponentialRampToValueAtTime(260, t + length);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime((0.12 + 0.35 * size) * attenuation(distance), t + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + length);
+    src.connect(band).connect(gain).connect(master);
+    src.start(t, Math.random());
+    src.stop(t + length + 0.02);
+  }
+
   /** A fighter's shot, `distance` tiles away: a lower, harsher zap than the craft's cannon. */
   enemyShot(distance: number): void {
     const { ctx, master } = this;

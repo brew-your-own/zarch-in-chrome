@@ -1,0 +1,60 @@
+import * as THREE from 'three';
+import { describe, expect, it } from 'vitest';
+import { spawnCraft } from '../sim/craft';
+import { Terrain } from '../sim/terrain';
+import { CameraRig, DEFAULT_CAMERA, shakeAt, zoomFactor } from './cameraRig';
+import { waveHeight } from './terrainView';
+
+describe('camera rig', () => {
+  it('pulls back smoothly with altitude, up to 1.5x, and not at all when switched off', () => {
+    expect(zoomFactor(0, 1)).toBe(1);
+    expect(zoomFactor(6, 1)).toBeGreaterThan(1);
+    expect(zoomFactor(6, 1)).toBeLessThan(zoomFactor(12, 1));
+    expect(zoomFactor(12, 1)).toBeCloseTo(1.5);
+    expect(zoomFactor(40, 1)).toBeCloseTo(1.5);
+    expect(zoomFactor(12, 0)).toBe(1);
+  });
+
+  it('shakes less for explosions further away', () => {
+    expect(shakeAt(1, 0)).toBe(1);
+    expect(shakeAt(1, 5)).toBeCloseTo(0.5);
+    expect(shakeAt(1, 20)).toBeLessThan(shakeAt(1, 5));
+  });
+
+  it('rolls with a sideways tilt, settles after a shake, and holds still while paused', () => {
+    const t = Terrain.fromRows([[1, 1], [1, 1]], { i: 0, j: 0, w: 1, h: 1 });
+    const camera = new THREE.PerspectiveCamera();
+    const rig = new CameraRig(camera, { ...DEFAULT_CAMERA });
+    const craft = spawnCraft(t);
+    craft.status = 'flying';
+    craft.tilt = { x: 1, z: 0 };
+    const pos = { x: 0, y: 3, z: 0 };
+    rig.snap(pos.y);
+    for (let k = 0; k < 120; k++) rig.update(pos, craft, 1, 1 / 60, 1 / 60);
+    expect(camera.rotation.z).toBeLessThan(-0.05); // tilting right rolls the view clockwise
+
+    craft.tilt = { x: 0, z: 0 };
+    rig.shake(1);
+    rig.update(pos, craft, 1, 1 / 60, 1 / 60);
+    const shaken = camera.position.clone();
+    rig.update(pos, craft, 1, 1 / 60, 0); // paused: no further shake motion
+    expect(camera.position.distanceTo(shaken)).toBeLessThan(0.02);
+    for (let k = 0; k < 180; k++) rig.update(pos, craft, 1, 1 / 60, 1 / 60);
+    const settled = camera.position.clone();
+    rig.update(pos, craft, 1, 1 / 60, 1 / 60);
+    expect(camera.position.distanceTo(settled)).toBeLessThan(1e-3);
+  });
+});
+
+describe('waves', () => {
+  it('are gentle and line up across the world wrap', () => {
+    for (let k = 0; k < 50; k++) {
+      const i = k * 3;
+      const j = k * 7;
+      const h = waveHeight(64, i, j, k * 0.37);
+      expect(Math.abs(h)).toBeLessThanOrEqual(0.15);
+      expect(waveHeight(64, i + 64, j - 128, k * 0.37)).toBeCloseTo(h, 9);
+    }
+    expect(waveHeight(64, 5, 9, 1)).not.toBeCloseTo(waveHeight(64, 5, 9, 2), 3); // they move
+  });
+});

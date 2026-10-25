@@ -1,4 +1,5 @@
 import { DEFAULT_SOUND } from '../audio/sound';
+import { DEFAULT_CAMERA } from '../render/cameraRig';
 import { drawMinimap } from '../render/minimap';
 import { COLOUR_PRESETS, DEFAULT_COLOURS, Palette } from '../render/palette';
 import { DEFAULT_PLUME } from '../render/exhaustView';
@@ -66,6 +67,12 @@ const PLUME_SLIDERS: SliderSpec<Settings['plume']>[] = [
   { key: 'spread', label: 'Spread', min: 0, max: 3, step: 0.05 },
   { key: 'lifetime', label: 'Lifetime', min: 0.1, max: 2, step: 0.05, unit: 's' },
   { key: 'size', label: 'Particle size', min: 0.02, max: 0.3, step: 0.01 },
+];
+
+const CAMERA_SLIDERS: SliderSpec<Settings['camera']>[] = [
+  { key: 'lean', label: 'Lean into turns', min: 0, max: 200, step: 10, unit: '%', scale: 100 },
+  { key: 'shake', label: 'Explosion shake', min: 0, max: 200, step: 10, unit: '%', scale: 100 },
+  { key: 'zoom', label: 'Zoom out with height', min: 0, max: 200, step: 10, unit: '%', scale: 100 },
 ];
 
 const COLOUR_SLIDERS: SliderSpec<Settings['colours']>[] = [
@@ -156,6 +163,8 @@ export class SettingsPanel {
     tuning.append(this.toggle(settings.autopilot, 'enabled', 'Auto-refuel [R]', 'Once per wave, flies you back to the pad and lands.'));
     tuning.append(el('h2', undefined, 'Thruster plume'));
     for (const spec of PLUME_SLIDERS) tuning.append(this.slider(settings.plume, spec));
+    tuning.append(el('h2', undefined, 'Camera'));
+    for (const spec of CAMERA_SLIDERS) tuning.append(this.slider(settings.camera, spec));
     tuning.append(el('h2', undefined, 'Colours'));
     const presets = el('div', 'presets');
     for (const [id, preset] of Object.entries(COLOUR_PRESETS) as [keyof typeof COLOUR_PRESETS, (typeof COLOUR_PRESETS)[keyof typeof COLOUR_PRESETS]][]) {
@@ -180,6 +189,7 @@ export class SettingsPanel {
       Object.assign(settings.colours, DEFAULT_COLOURS);
       Object.assign(settings.enemies, DEFAULT_ENEMIES);
       Object.assign(settings.autopilot, DEFAULT_AUTOPILOT);
+      Object.assign(settings.camera, DEFAULT_CAMERA);
       Object.assign(settings.sound, DEFAULT_SOUND);
       this.refresh();
       handlers.onChange();

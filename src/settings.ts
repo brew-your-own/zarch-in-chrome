@@ -1,4 +1,5 @@
 import { DEFAULT_SOUND, type SoundSettings } from './audio/sound';
+import { DEFAULT_CAMERA, type CameraSettings } from './render/cameraRig';
 import { DEFAULT_PLUME, type PlumeSettings } from './render/exhaustView';
 import { DEFAULT_COLOURS, type ColourSettings } from './render/palette';
 import { DEFAULT_AUTOPILOT, type AutopilotSettings } from './sim/autopilot';
@@ -8,7 +9,7 @@ import { DEFAULT_MAP_ID, findMap } from './sim/maps';
 
 /**
  * Everything the pause panel can change. The objects are mutated in place:
- * the sim, views and sound engine hold references to `physics`, `plume`, `colours`, `enemies`, `autopilot` and `sound`.
+ * the sim, views and sound engine hold references to `physics`, `plume`, `colours`, `enemies`, `autopilot`, `camera` and `sound`.
  */
 export interface Settings {
   physics: Physics;
@@ -16,6 +17,7 @@ export interface Settings {
   colours: ColourSettings;
   enemies: EnemySettings;
   autopilot: AutopilotSettings;
+  camera: CameraSettings;
   sound: SoundSettings;
   mapId: string;
 }
@@ -29,6 +31,7 @@ export function defaultSettings(): Settings {
     colours: { ...DEFAULT_COLOURS },
     enemies: { ...DEFAULT_ENEMIES },
     autopilot: { ...DEFAULT_AUTOPILOT },
+    camera: { ...DEFAULT_CAMERA },
     sound: { ...DEFAULT_SOUND },
     mapId: DEFAULT_MAP_ID,
   };
@@ -59,6 +62,7 @@ export function loadSettings(): Settings {
     mergeValues(settings.colours, s.colours);
     mergeValues(settings.enemies, s.enemies);
     mergeValues(settings.autopilot, s.autopilot);
+    mergeValues(settings.camera, s.camera);
     mergeValues(settings.sound, s.sound);
     if (typeof s.mapId === 'string') settings.mapId = findMap(s.mapId).id;
   } catch {

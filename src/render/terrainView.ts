@@ -14,6 +14,20 @@ const VERTS_PER_TILE = 6;
 
 const AMBIENT = 0.45;
 
+/** Height of each of the two wave trains on open water. */
+const WAVE_AMPLITUDE = 0.06;
+/** Sea facets are lit as if their slopes were this many times steeper, so the waves glint. */
+const WAVE_GLINT = 4;
+
+/**
+ * Wave height at vertex (i, j) at `time`: two crossing wave trains. Their wavelengths divide
+ * the world `size`, so the pattern lines up across the wrap.
+ */
+export function waveHeight(size: number, i: number, j: number, time: number): number {
+  const k = (Math.PI * 2) / size;
+  return WAVE_AMPLITUDE * (Math.sin(k * (5 * i + 3 * j) + 1.3 * time) + Math.sin(k * (-4 * i + 7 * j) - 1.1 * time + 1.7));
+}
+
 /**
  * The visible patch of terrain, rebuilt every frame around the craft.
  * Shading is computed per triangle on the CPU for a flat-shaded look,
@@ -26,6 +40,11 @@ export class TerrainView {
   private readonly geometry = new THREE.BufferGeometry();
 
   private readonly base = new THREE.Color();
+  /**
+   * Per vertex (wrapped), whether all four tiles around it are sea. Only those vertices move
+   * with the waves, so the shoreline stays put and land tiles never come apart from the sea.
+   */
+  private readonly openWater: Uint8Array;
 
   constructor(
     private readonly terrain: Terrain,
@@ -38,9 +57,19 @@ export class TerrainView {
     this.geometry.setAttribute('color', new THREE.BufferAttribute(this.colors, 3).setUsage(THREE.DynamicDrawUsage));
     this.mesh = new THREE.Mesh(this.geometry, new THREE.MeshBasicMaterial({ vertexColors: true }));
     this.mesh.frustumCulled = false;
+
+    const n = terrain.size;
+    this.openWater = new Uint8Array(n * n);
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const sea = (a: number, b: number) => terrain.tileType(a, b) === 'sea';
+        this.openWater[j * n + i] = sea(i - 1, j - 1) && sea(i, j - 1) && sea(i - 1, j) && sea(i, j) ? 1 : 0;
+      }
+    }
   }
 
-  update(centreX: number, centreZ: number): void {
+  /** `time` drives the waves (frozen while paused). */
+  update(centreX: number, centreZ: number, time = 0): void {
     const ci = Math.floor(centreX);
     const cj = Math.floor(centreZ);
     const t = this.terrain;
@@ -57,29 +86,38 @@ export class TerrainView {
       v++;
     };
 
-    const shade = (base: THREE.Color, dx: number, dz: number) => {
+    const shade = (base: THREE.Color, dx: number, dz: number, glint = 1) => {
+      dx *= glint;
+      dz *= glint;
       // Normal of a triangle with height slopes dx (along x) and dz (along z).
       const len = Math.hypot(dx, 1, dz);
       const lambert = Math.max(0, (-dx * SUN.x + SUN.y - dz * SUN.z) / len);
       return tmp.copy(base).multiplyScalar(AMBIENT + (1 - AMBIENT) * lambert);
     };
 
+    const n = t.size;
+    const height = (i: number, j: number) => {
+      const open = this.openWater[(((j % n) + n) % n) * n + (((i % n) + n) % n)];
+      return t.vertexHeight(i, j) + (open ? waveHeight(n, i, j, time) : 0);
+    };
+
     for (let j = cj - ROWS_AHEAD; j <= cj + ROWS_BEHIND; j++) {
       for (let i = ci - HALF_WIDTH; i <= ci + HALF_WIDTH; i++) {
-        const h00 = t.vertexHeight(i, j);
-        const h10 = t.vertexHeight(i + 1, j);
-        const h01 = t.vertexHeight(i, j + 1);
-        const h11 = t.vertexHeight(i + 1, j + 1);
+        const h00 = height(i, j);
+        const h10 = height(i + 1, j);
+        const h01 = height(i, j + 1);
+        const h11 = height(i + 1, j + 1);
         const base = this.palette.tile(i, j, this.base);
+        const glint = t.tileType(i, j) === 'sea' ? WAVE_GLINT : 1;
 
         // Triangle (00, 11, 10): the fx >= fz half.
-        let c = shade(base, h10 - h00, h11 - h10);
+        let c = shade(base, h10 - h00, h11 - h10, glint);
         put(i, h00, j, c);
         put(i + 1, h11, j + 1, c);
         put(i + 1, h10, j, c);
 
         // Triangle (00, 01, 11): the fz > fx half.
-        c = shade(base, h11 - h01, h01 - h00);
+        c = shade(base, h11 - h01, h01 - h00, glint);
         put(i, h00, j, c);
         put(i, h01, j + 1, c);
         put(i + 1, h11, j + 1, c);

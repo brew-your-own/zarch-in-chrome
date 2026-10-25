@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { proximityLevel, SoundEngine } from './audio/sound';
 import { MouseInput } from './input';
 import { BulletView, FIGHTER_TRACER } from './render/bulletView';
+import { CameraRig } from './render/cameraRig';
 import { CraftView } from './render/craftView';
 import { EffectsView } from './render/effectsView';
 import { ExhaustView } from './render/exhaustView';
@@ -26,10 +27,6 @@ import { SettingsPanel } from './ui/settingsPanel';
 
 const STEP = 1 / 60;
 const MAX_FRAME = 0.25;
-/** Camera sits behind (south of) and above the craft, always looking north. */
-const CAMERA_OFFSET = new THREE.Vector3(0, 4.5, 7);
-const CAMERA_PITCH = -0.55;
-const CAMERA_FOLLOW_Y = 3;
 
 const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
 const hud = new Hud(document.querySelector<HTMLDivElement>('#hud')!, document.body);
@@ -56,6 +53,11 @@ const newEnemies = () => createEnemies((Math.random() * 2 ** 32) >>> 0);
 const enemies = newEnemies();
 /** Simulated seconds, frozen while paused; drives the seeders' spin. */
 let simTime = 0;
+/** Seconds of unpaused play, for cosmetic motion such as the waves. */
+let waveTime = 0;
+/** Seconds until another small splash may sound, so a shower of shards doesn't stack up. */
+let splashQuiet = 0;
+const SPLASH_GAP = 0.12;
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -66,7 +68,8 @@ sun.position.set(SUN.x, SUN.y, SUN.z);
 scene.add(sun);
 
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
-camera.rotation.set(CAMERA_PITCH, 0, 0);
+const rig = new CameraRig(camera, settings.camera);
+rig.snap(craft.pos.y);
 
 // Views hold the terrain they draw, so they are rebuilt when the map changes.
 let terrainView: TerrainView;
@@ -219,14 +222,13 @@ resize();
 
 const prevPos = { ...craft.pos };
 const renderPos = { ...craft.pos };
-let cameraY = craft.pos.y;
 let accumulator = 0;
 let last = performance.now();
 
 /** Snaps interpolation and camera to the craft, e.g. after a teleport to a new map. */
 function resetMotion() {
   Object.assign(prevPos, craft.pos);
-  cameraY = craft.pos.y;
+  rig.snap(craft.pos.y);
   accumulator = 0;
 }
 
@@ -290,10 +292,15 @@ function frame(now: number) {
       stepCraft(craft, auto ?? manual, terrain, STEP, physics);
       for (const impact of stepCannon(cannon, craft, input.fire, terrain, STEP, physics)) {
         effectsView.impact(impact);
+        if (impact.kind === 'sea' && splashQuiet <= 0) {
+          sound.splash(0.1, distanceFromCraft(impact.pos));
+          splashQuiet = SPLASH_GAP;
+        }
         if (impact.tree) {
           const { geometry, matrix } = treeView.shape(impact.tree.i, impact.tree.j, impact.tree.kind);
           effectsView.destroyTree(geometry, matrix, impact);
           sound.explosion('tree', distanceFromCraft(impact.pos));
+          rig.shake(0.2, distanceFromCraft(impact.pos));
           geometry.dispose();
         }
       }
@@ -302,10 +309,12 @@ function frame(now: number) {
           const { geometry, matrix } = seederView.shape(event.seeder, craft.pos, simTime);
           effectsView.explode(geometry, matrix, event.seeder.vel);
           sound.explosion('seeder', distanceFromCraft(event.seeder.pos));
+          rig.shake(0.5, distanceFromCraft(event.seeder.pos));
         } else if (event.type === 'fighterDestroyed') {
           const { geometry, matrix } = fighterView.shape(event.fighter, craft.pos);
           effectsView.explode(geometry, matrix, event.fighter.vel);
           sound.explosion('fighter', distanceFromCraft(event.fighter.pos));
+          rig.shake(0.55, distanceFromCraft(event.fighter.pos));
         } else if (event.type === 'fighterFired') {
           sound.enemyShot(distanceFromCraft(event.pos));
         }
@@ -314,6 +323,8 @@ function frame(now: number) {
         // The mesh still holds its last pose, which is where the pieces start from.
         effectsView.explode(craftView.craft.geometry, craftView.craft.matrixWorld, craft.vel);
         sound.explosion('craft');
+        if (terrain.tileTypeAt(craft.pos.x, craft.pos.z) === 'sea') sound.splash(1, 0);
+        rig.shake(0.9);
         lives--;
       }
       accumulator -= STEP;
@@ -328,20 +339,26 @@ function frame(now: number) {
   renderPos.y = prevPos.y + (craft.pos.y - prevPos.y) * alpha;
   renderPos.z = prevPos.z + (craft.pos.z - prevPos.z) * alpha;
 
-  cameraY += (renderPos.y - cameraY) * Math.min(1, elapsed * CAMERA_FOLLOW_Y);
-  camera.position.set(renderPos.x, cameraY, renderPos.z).add(CAMERA_OFFSET);
+  const effectsDt = input.locked ? elapsed : 0;
+  const groundY = terrain.heightAt(renderPos.x, renderPos.z);
+  rig.update(renderPos, craft, groundY, elapsed, effectsDt);
 
-  skyView.update(camera, renderPos.x, terrain.heightAt(renderPos.x, renderPos.z), elapsed);
-  terrainView.update(renderPos.x, renderPos.z);
+  skyView.update(camera, renderPos.x, groundY, elapsed);
+  waveTime += effectsDt;
+  terrainView.update(renderPos.x, renderPos.z, waveTime);
   treeView.update(renderPos.x, renderPos.z);
   craftView.update(craft, renderPos);
-  const effectsDt = input.locked ? elapsed : 0;
   exhaustView.update(craft, craftView.craft.matrixWorld, effectsDt);
   bulletView.update(cannon.bullets);
   shotView.update(enemies.shots, { terrain, focus: renderPos });
   fighterView.update(enemies, renderPos, effectsDt);
   seederView.update(enemies, renderPos, simTime);
-  effectsView.update(effectsDt, physics.gravity);
+  const sunk = effectsView.update(effectsDt, physics.gravity);
+  splashQuiet -= elapsed;
+  if (sunk.length > 0 && splashQuiet <= 0) {
+    sound.splash(0.25, distanceFromCraft(sunk[0]!));
+    splashQuiet = SPLASH_GAP;
+  }
   renderer.render(scene, camera);
 
   const alert = proximityAlert();

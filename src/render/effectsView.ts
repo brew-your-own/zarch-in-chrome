@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Impact } from '../sim/cannon';
 import type { Vec3 } from '../sim/craft';
-import type { Terrain } from '../sim/terrain';
+import { SEA_LEVEL, type Terrain } from '../sim/terrain';
 import { ParticlePool, ramp } from './particles';
 
 const RAMP_FIRE = 0;
@@ -16,6 +16,9 @@ const RAMPS = [
   ramp(0xffffff, 0xa0d0ff, 0x2449d6),
   ramp(0x80d040, 0x2a7f3e, 0x103010),
 ];
+
+/** Where splashes start: the sea's resting surface. */
+const SEA_SURFACE = SEA_LEVEL;
 
 /** Shards alive at once across all wrecks; the oldest are dropped first. */
 const MAX_PIECES = 256;
@@ -99,6 +102,31 @@ export class EffectsView {
     const centre = this.shatter(shape, matrix, vel, CRAFT_SHATTER);
     this.burst(centre, vel, 90, RAMP_FIRE, 3.5, [0.5, 1.2], 0.4);
     this.burst(centre, vel, 30, RAMP_SMOKE, 1.2, [1.5, 2.5], -0.1);
+    // Blown up at the water's surface: throw up a column of spray too.
+    if (this.overSea(centre.x, centre.z) && centre.y < SEA_SURFACE + 0.6) this.splash(centre, 1);
+  }
+
+  /**
+   * Spray where something hits the sea: a column of droplets plus a low ring. `size` 0-1
+   * scales it from a bullet-sized flick to a wreck crashing in.
+   */
+  splash(pos: { x: number; z: number }, size: number): void {
+    const count = Math.round(10 + 70 * size);
+    for (let k = 0; k < count; k++) {
+      const ring = k % 3 === 0;
+      const angle = rand(0, Math.PI * 2);
+      const out = ring ? rand(1, 1.8) * (0.6 + size) : rand(0, 0.5) * (0.4 + size);
+      this.pool.spawn({
+        x: pos.x,
+        y: SEA_SURFACE + 0.02,
+        z: pos.z,
+        vx: Math.cos(angle) * out,
+        vy: ring ? rand(0.6, 1.4) : rand(2, 3.5) * (0.6 + 0.8 * size),
+        vz: Math.sin(angle) * out,
+        life: rand(0.5, 0.9) + 0.4 * size,
+        ramp: RAMP_SPLASH,
+      });
+    }
   }
 
   /** Shatters a tree hit by a bullet; `shape` has the tree's colours baked in. */
@@ -167,7 +195,7 @@ export class EffectsView {
     const settings = {
       ground: { count: 8, ramp: RAMP_SPARK, up: [1, 2.5], spread: 1.5, life: [0.25, 0.5] },
       tree: { count: 10, ramp: RAMP_LEAVES, up: [0.5, 1.5], spread: 1.2, life: [0.4, 0.8] },
-      sea: { count: 14, ramp: RAMP_SPLASH, up: [2, 3.5], spread: 0.8, life: [0.4, 0.7] },
+      sea: { count: 22, ramp: RAMP_SPLASH, up: [2, 3.8], spread: 0.9, life: [0.45, 0.8] },
     }[kind];
     for (let k = 0; k < settings.count; k++) {
       this.pool.spawn({
@@ -183,8 +211,12 @@ export class EffectsView {
     }
   }
 
-  /** `dt` is 0 while paused. */
-  update(dt: number, gravity: number): void {
+  /**
+   * `dt` is 0 while paused. Shards that fall into the sea sink with a small splash; returns
+   * where those splashes were this frame, for the sound.
+   */
+  update(dt: number, gravity: number): { x: number; z: number }[] {
+    const splashes: { x: number; z: number }[] = [];
     this.pool.update(dt, gravity);
     this.pieces = this.pieces.filter((p) => (p.age += dt) < PIECE_LIFE);
 
@@ -194,6 +226,12 @@ export class EffectsView {
       this.step.setFromAxisAngle(p.axis, p.angularSpeed * dt);
       p.spin.premultiply(this.step);
       const ground = this.terrain.heightAt(p.centre.x, p.centre.z) + 0.02;
+      if (p.centre.y < ground && this.overSea(p.centre.x, p.centre.z)) {
+        this.splash(p.centre, 0.12);
+        splashes.push({ x: p.centre.x, z: p.centre.z });
+        p.age = PIECE_LIFE; // sunk: dropped below
+        continue;
+      }
       if (p.centre.y < ground) {
         p.centre.y = ground;
         p.vel.y = Math.abs(p.vel.y) * PIECE_BOUNCE;
@@ -203,6 +241,7 @@ export class EffectsView {
       }
     }
 
+    this.pieces = this.pieces.filter((p) => p.age < PIECE_LIFE);
     this.pieces.forEach((p, k) => {
       const scale = Math.min(1, (PIECE_LIFE - p.age) / PIECE_SHRINK);
       p.corners.forEach((c, v) => {
@@ -215,6 +254,11 @@ export class EffectsView {
     geometry.setDrawRange(0, this.pieces.length * 3);
     geometry.attributes.position!.needsUpdate = true;
     geometry.attributes.color!.needsUpdate = true;
+    return splashes;
+  }
+
+  private overSea(x: number, z: number): boolean {
+    return this.terrain.tileTypeAt(x, z) === 'sea';
   }
 
   private addPiece(
