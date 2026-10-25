@@ -95,6 +95,37 @@ describe('fighters', () => {
     expect(craft.status).toBe('crashed');
   });
 
+  it('can be dodged: a craft that keeps moving is hit far less than one hovering still', () => {
+    /** Share of shots that hit a craft weaving at `speed`, turning every 1.5 s, over two minutes. */
+    const hitRate = (speed: number) => {
+      const t = world();
+      const craft = hovering(t);
+      const enemies = oneFighter(t, 20, 10);
+      let hits = 0;
+      let fired = 0;
+      for (let time = 0; time < 120; time += DT) {
+        const angle = Math.floor(time / 1.5) * 2.1;
+        craft.vel = { x: Math.cos(angle) * speed, y: 0, z: Math.sin(angle) * speed };
+        craft.pos.x += craft.vel.x * DT;
+        craft.pos.z += craft.vel.z * DT;
+        craft.pos.y = t.heightAt(craft.pos.x, craft.pos.z) + 3;
+        for (const e of stepEnemies(enemies, craft, [], t, DT, DEFAULT_ENEMIES, P)) {
+          if (e.type === 'fighterFired') fired++;
+          if (e.type === 'craftShot') {
+            hits++;
+            craft.status = 'flying'; // shrug it off and keep counting
+          }
+        }
+      }
+      return hits / fired;
+    };
+    const still = hitRate(0);
+    const weaving = hitRate(3);
+    expect(still).toBeGreaterThan(0.2);
+    expect(weaving).toBeLessThan(0.1);
+    expect(weaving).toBeLessThan(still / 3);
+  });
+
   it('holds fire while the craft sits on the pad', () => {
     const t = world();
     const craft = spawnCraft(t); // landed on the pad

@@ -45,7 +45,8 @@ const ENEMY_SLIDERS: SliderSpec<Settings['enemies']>[] = [
   { key: 'virusSpread', label: 'Virus spread', min: 0, max: 20, step: 0.5, unit: '%/s', scale: 100 },
   { key: 'fighters', label: 'Fighters per wave', min: 0, max: 3, step: 0.5, unit: '× (wave − 1)' },
   { key: 'fighterSpeed', label: 'Fighter speed', min: 1, max: 10, step: 0.1, unit: 'u/s' },
-  { key: 'fighterFireInterval', label: 'Fighter fire interval', min: 0.3, max: 5, step: 0.1, unit: 's' },
+  { key: 'fighterFireInterval', label: 'Fighter fire interval', min: 0.5, max: 6, step: 0.1, unit: 's' },
+  { key: 'fighterAccuracy', label: 'Fighter accuracy', min: 0, max: 100, step: 5, unit: '%', scale: 100 },
 ];
 
 const GAME_SLIDERS: SliderSpec<Settings['enemies']>[] = [

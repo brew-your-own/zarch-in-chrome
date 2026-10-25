@@ -23,6 +23,8 @@ export interface EnemySettings {
   fighterSpeed: number;
   /** Mean seconds between one fighter's shots. */
   fighterFireInterval: number;
+  /** 0-1: how well fighters aim (spread, and how far they lead a moving craft). */
+  fighterAccuracy: number;
   /** Craft per game; losing the last one ends it. */
   lives: number;
 }
@@ -35,7 +37,8 @@ export const DEFAULT_ENEMIES: Readonly<EnemySettings> = Object.freeze({
   overrunAt: 0.6,
   fighters: 1,
   fighterSpeed: 4.5,
-  fighterFireInterval: 1.4,
+  fighterFireInterval: 2.5,
+  fighterAccuracy: 0.35,
   lives: 3,
 });
 

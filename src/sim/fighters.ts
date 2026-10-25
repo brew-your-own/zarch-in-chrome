@@ -30,6 +30,8 @@ export interface EnemyShot {
 export interface FighterSettings {
   fighterSpeed: number;
   fighterFireInterval: number;
+  /** 0-1: how well fighters aim. Higher means less spread and more lead on a moving craft. */
+  fighterAccuracy: number;
 }
 
 export const FIGHTER_RADIUS = 0.35;
@@ -46,10 +48,14 @@ const MAX_CLIMB = 3.5;
 const ABOVE_CRAFT = 1;
 /** Shots are fired when the craft is within this distance (3D). */
 export const FIRE_RANGE = 9;
-export const SHOT_SPEED = 9;
+/** Slow enough (about a second from the stand-off ring) to see a shot coming and move. */
+export const SHOT_SPEED = 6;
 export const SHOT_LIFE = 1.6;
-/** Random aiming error (radians, either way), so not every shot is a hit. */
-const AIM_ERROR = 0.06;
+/** Random aiming error (radians, either way) at zero and full accuracy. */
+const AIM_ERROR_SLOPPY = 0.12;
+const AIM_ERROR_SHARP = 0.03;
+/** Share of the craft's motion during the shot's flight that is led, at full accuracy. */
+const MAX_LEAD = 0.7;
 /** A shot hits the craft within this horizontal radius and vertical half-height. */
 const SHOT_HIT_RADIUS = CRAFT_RADIUS + 0.08;
 const SHOT_HIT_HEIGHT = 0.25;
@@ -120,19 +126,24 @@ export function flyFighter(
   if (Math.hypot(dx, dy, dz) > FIRE_RANGE) return null;
 
   f.cooldown = settings.fighterFireInterval * (0.7 + 0.6 * rng());
-  return aimShot(f.pos, craft, dx, dy, dz, rng);
+  return aimShot(f.pos, craft, dx, dy, dz, settings.fighterAccuracy, rng);
 }
 
-/** A shot from `from` towards where the craft will be when it arrives, with some aiming error. */
-function aimShot(from: Vec3, craft: CraftState, dx: number, dy: number, dz: number, rng: () => number): EnemyShot {
-  const flight = Math.hypot(dx, dy, dz) / SHOT_SPEED;
-  let ax = dx + craft.vel.x * flight;
-  let ay = dy + craft.vel.y * flight;
-  let az = dz + craft.vel.z * flight;
+/**
+ * A shot from `from` at the craft. It leads only part of the craft's motion and has some
+ * random error, both set by `accuracy`, so a craft that keeps moving is hard to hit.
+ */
+function aimShot(from: Vec3, craft: CraftState, dx: number, dy: number, dz: number, accuracy: number, rng: () => number): EnemyShot {
+  const a = Math.max(0, Math.min(1, accuracy));
+  const lead = (Math.hypot(dx, dy, dz) / SHOT_SPEED) * MAX_LEAD * a * a;
+  const error = AIM_ERROR_SLOPPY + (AIM_ERROR_SHARP - AIM_ERROR_SLOPPY) * a;
+  let ax = dx + craft.vel.x * lead;
+  let ay = dy + craft.vel.y * lead;
+  let az = dz + craft.vel.z * lead;
   const len = Math.hypot(ax, ay, az) || 1;
-  ax = ax / len + (rng() * 2 - 1) * AIM_ERROR;
-  ay = ay / len + (rng() * 2 - 1) * AIM_ERROR;
-  az = az / len + (rng() * 2 - 1) * AIM_ERROR;
+  ax = ax / len + (rng() * 2 - 1) * error;
+  ay = ay / len + (rng() * 2 - 1) * error;
+  az = az / len + (rng() * 2 - 1) * error;
   const n = Math.hypot(ax, ay, az) || 1;
   return {
     pos: { ...from },
