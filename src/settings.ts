@@ -1,3 +1,4 @@
+import { DEFAULT_SOUND, type SoundSettings } from './audio/sound';
 import { DEFAULT_PLUME, type PlumeSettings } from './render/exhaustView';
 import { DEFAULT_COLOURS, type ColourSettings } from './render/palette';
 import { DEFAULT_PHYSICS, type Physics } from './sim/craft';
@@ -6,13 +7,14 @@ import { DEFAULT_MAP_ID, findMap } from './sim/maps';
 
 /**
  * Everything the pause panel can change. The objects are mutated in place:
- * the sim and views hold references to `physics`, `plume`, `colours` and `enemies`.
+ * the sim, views and sound engine hold references to `physics`, `plume`, `colours`, `enemies` and `sound`.
  */
 export interface Settings {
   physics: Physics;
   plume: PlumeSettings;
   colours: ColourSettings;
   enemies: EnemySettings;
+  sound: SoundSettings;
   mapId: string;
 }
 
@@ -24,6 +26,7 @@ export function defaultSettings(): Settings {
     plume: { ...DEFAULT_PLUME },
     colours: { ...DEFAULT_COLOURS },
     enemies: { ...DEFAULT_ENEMIES },
+    sound: { ...DEFAULT_SOUND },
     mapId: DEFAULT_MAP_ID,
   };
 }
@@ -48,6 +51,7 @@ export function loadSettings(): Settings {
     mergeNumbers(settings.plume, s.plume);
     mergeNumbers(settings.colours, s.colours);
     mergeNumbers(settings.enemies, s.enemies);
+    mergeNumbers(settings.sound, s.sound);
     if (typeof s.mapId === 'string') settings.mapId = findMap(s.mapId).id;
   } catch {
     // Corrupt or inaccessible storage: keep defaults.

@@ -1,3 +1,4 @@
+import { DEFAULT_SOUND } from '../audio/sound';
 import { drawMinimap } from '../render/minimap';
 import { COLOUR_PRESETS, DEFAULT_COLOURS, Palette } from '../render/palette';
 import { DEFAULT_PLUME } from '../render/exhaustView';
@@ -42,6 +43,10 @@ const ENEMY_SLIDERS: SliderSpec<Settings['enemies']>[] = [
   { key: 'sporeInterval', label: 'Spore interval', min: 0.3, max: 6, step: 0.1, unit: 's' },
   { key: 'virusSpread', label: 'Virus spread', min: 0, max: 20, step: 0.5, unit: '%/s', scale: 100 },
   { key: 'overrunAt', label: 'Game over at', min: 10, max: 100, step: 5, unit: '% land', scale: 100 },
+];
+
+const SOUND_SLIDERS: SliderSpec<Settings['sound']>[] = [
+  { key: 'volume', label: 'Volume', min: 0, max: 100, step: 5, unit: '%', scale: 100 },
 ];
 
 const PLUME_SLIDERS: SliderSpec<Settings['plume']>[] = [
@@ -149,12 +154,15 @@ export class SettingsPanel {
     }
     tuning.append(presets);
     for (const spec of COLOUR_SLIDERS) tuning.append(this.slider(settings.colours, spec));
+    tuning.append(el('h2', undefined, 'Sound'));
+    for (const spec of SOUND_SLIDERS) tuning.append(this.slider(settings.sound, spec));
     const reset = el('button', 'reset', 'Reset to defaults');
     reset.addEventListener('click', () => {
       Object.assign(settings.physics, DEFAULT_PHYSICS);
       Object.assign(settings.plume, DEFAULT_PLUME);
       Object.assign(settings.colours, DEFAULT_COLOURS);
       Object.assign(settings.enemies, DEFAULT_ENEMIES);
+      Object.assign(settings.sound, DEFAULT_SOUND);
       this.refresh();
       handlers.onChange();
     });

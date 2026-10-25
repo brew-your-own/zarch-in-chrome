@@ -52,6 +52,7 @@ describe('cannon', () => {
       stepCannon(cannon, craft, true, t, DT, P);
       if (cannon.bullets.length > before) fired++;
     }
+    expect(cannon.shots).toBe(fired);
     expect(fired).toBeGreaterThanOrEqual(P.fireRate - 1);
     expect(fired).toBeLessThanOrEqual(P.fireRate + 1);
     const first = cannon.bullets[0]!;

@@ -12,6 +12,8 @@ export interface CannonState {
   bullets: Bullet[];
   /** Seconds until the next shot is allowed. */
   cooldown: number;
+  /** Shots fired so far; the sound layer plays one shot per increase. */
+  shots: number;
 }
 
 export type ImpactKind = 'ground' | 'sea' | 'tree';
@@ -33,7 +35,7 @@ const MUZZLE_UP = 0.06;
 const CHECKS_PER_UNIT = 8;
 
 export function createCannon(): CannonState {
-  return { bullets: [], cooldown: 0 };
+  return { bullets: [], cooldown: 0, shots: 0 };
 }
 
 /**
@@ -54,6 +56,7 @@ export function stepCannon(
   if (fire && craft.status !== 'crashed' && cannon.cooldown === 0 && physics.fireRate > 0) {
     cannon.bullets.push(launch(craft, physics));
     cannon.cooldown = 1 / physics.fireRate;
+    cannon.shots++;
   }
 
   const impacts: Impact[] = [];

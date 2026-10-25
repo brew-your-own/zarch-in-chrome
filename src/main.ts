@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SoundEngine } from './audio/sound';
 import { MouseInput } from './input';
 import { BulletView } from './render/bulletView';
 import { CraftView } from './render/craftView';
@@ -37,6 +38,9 @@ const { physics, plume, colours } = settings;
 let terrain: Terrain = buildMap(findMap(settings.mapId));
 const craft = spawnCraft(terrain, physics);
 const cannon = createCannon();
+const sound = new SoundEngine(settings.sound);
+/** Shots already played, to sound each new one once. */
+let shotsHeard = 0;
 const newEnemies = () => createEnemies((Math.random() * 2 ** 32) >>> 0);
 const enemies = newEnemies();
 /** Simulated seconds, frozen while paused; drives the seeders' spin. */
@@ -138,6 +142,7 @@ function endGame() {
 const panel = new SettingsPanel(overlay, settings, {
   onFly: () => {
     if (gameOver) newGame(settings.mapId);
+    sound.resume(); // a click: browsers only allow audio to start from a user gesture
     input.requestLock();
   },
   onChange: () => saveSettings(settings),
@@ -152,6 +157,7 @@ const panel = new SettingsPanel(overlay, settings, {
 const gameOverScreen = new GameOverScreen(document.querySelector<HTMLDivElement>('#gameover')!, {
   onPlayAgain: () => {
     newGame(settings.mapId);
+    sound.resume();
     gameOverScreen.hide();
     input.requestLock();
   },
@@ -166,7 +172,7 @@ showPanel();
 // Setting `zarch.input.locked = true` runs the simulation without pointer lock.
 if (import.meta.env.DEV) {
   Object.assign(window, {
-    zarch: { craft, cannon, enemies, input, settings, get terrain() { return terrain; }, get gameOver() { return gameOver; } },
+    zarch: { craft, cannon, enemies, input, settings, sound, get terrain() { return terrain; }, get gameOver() { return gameOver; } },
   });
 }
 
@@ -191,6 +197,21 @@ function resetMotion() {
   accumulator = 0;
 }
 
+/** Horizontal distance from the craft across the wrapping world. */
+function distanceFromCraft(pos: { x: number; z: number }): number {
+  return Math.hypot(terrain.delta(craft.pos.x, pos.x), terrain.delta(craft.pos.z, pos.z));
+}
+
+/** Continuous and per-shot sounds for this frame (explosions play from the sim events). */
+function playSounds() {
+  sound.update();
+  sound.thruster(input.locked && !gameOver && craft.thrusting);
+  if (cannon.shots < shotsHeard) shotsHeard = 0; // a new game reset the cannon
+  // At most two blips per frame, so a long frame doesn't stack a burst of shots.
+  for (let k = 0; k < Math.min(2, cannon.shots - shotsHeard); k++) sound.cannon();
+  shotsHeard = cannon.shots;
+}
+
 function frame(now: number) {
   const elapsed = Math.min(MAX_FRAME, (now - last) / 1000);
   last = now;
@@ -209,6 +230,7 @@ function frame(now: number) {
         if (impact.tree) {
           const { geometry, matrix } = treeView.shape(impact.tree.i, impact.tree.j, impact.tree.kind);
           effectsView.destroyTree(geometry, matrix, impact);
+          sound.explosion('tree', distanceFromCraft(impact.pos));
           geometry.dispose();
         }
       }
@@ -216,10 +238,12 @@ function frame(now: number) {
         if (event.type !== 'seederDestroyed') continue;
         const { geometry, matrix } = seederView.shape(event.seeder, craft.pos, simTime);
         effectsView.explode(geometry, matrix, event.seeder.vel);
+        sound.explosion('seeder', distanceFromCraft(event.seeder.pos));
       }
       if (!wasCrashed && craft.status === 'crashed') {
         // The mesh still holds its last pose, which is where the pieces start from.
         effectsView.explode(craftView.craft.geometry, craftView.craft.matrixWorld, craft.vel);
+        sound.explosion('craft');
       }
       accumulator -= STEP;
       if (isOverrun(terrain, settings.enemies)) endGame();
@@ -246,6 +270,7 @@ function frame(now: number) {
   renderer.render(scene, camera);
 
   hud.update(craft, physics, enemies, settings.enemies, terrain, effectsDt);
+  playSounds();
   scanner.update(terrain, palette, craft, enemies, elapsed);
 
   requestAnimationFrame(frame);
