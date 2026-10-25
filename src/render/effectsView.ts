@@ -17,15 +17,30 @@ const RAMPS = [
   ramp(0x80d040, 0x2a7f3e, 0x103010),
 ];
 
-const MAX_PIECES = 64;
+/** Shards alive at once across all wrecks; the oldest are dropped first. */
+const MAX_PIECES = 256;
 const PIECE_LIFE = 3;
 /** Pieces shrink away over the last part of their life. */
 const PIECE_SHRINK = 0.6;
 const PIECE_BOUNCE = 0.35;
 const PIECE_FRICTION = 0.7;
-/** Share of the craft's impact velocity the wreckage keeps (vertical is mostly absorbed). */
-const CARRY_HORIZONTAL = 1;
-const CARRY_VERTICAL = 0.4;
+
+/** How a shape breaks apart. */
+interface ShatterStyle {
+  /** Split each triangle into four smaller shards. */
+  subdivide: boolean;
+  /** Share of the incoming velocity the shards keep, horizontally and vertically. */
+  carryHorizontal: number;
+  carryVertical: number;
+  /** Outward and upward kick ranges (units/s). */
+  outward: [number, number];
+  up: [number, number];
+}
+
+/** The craft keeps its momentum; the ground absorbs most of the vertical part. */
+const CRAFT_SHATTER: ShatterStyle = { subdivide: true, carryHorizontal: 1, carryVertical: 0.4, outward: [1, 2.5], up: [1.5, 3.5] };
+/** A shot tree bursts apart, nudged along by the bullet. */
+const TREE_SHATTER: ShatterStyle = { subdivide: false, carryHorizontal: 0.08, carryVertical: 0, outward: [0.6, 1.8], up: [1, 2.8] };
 
 interface Piece {
   centre: THREE.Vector3;
@@ -81,43 +96,70 @@ export class EffectsView {
    * `matrix` its last world pose, `vel` the velocity at impact.
    */
   explode(shape: THREE.BufferGeometry, matrix: THREE.Matrix4, vel: Vec3): void {
+    const centre = this.shatter(shape, matrix, vel, CRAFT_SHATTER);
+    this.burst(centre, vel, 90, RAMP_FIRE, 3.5, [0.5, 1.2], 0.4);
+    this.burst(centre, vel, 30, RAMP_SMOKE, 1.2, [1.5, 2.5], -0.1);
+  }
+
+  /** Shatters a tree hit by a bullet; `shape` has the tree's colours baked in. */
+  destroyTree(shape: THREE.BufferGeometry, matrix: THREE.Matrix4, impact: Impact): void {
+    const base = this.shatter(shape, matrix, impact.vel, TREE_SHATTER);
+    const centre = base.setY(impact.pos.y);
+    this.burst(centre, impact.vel, 25, RAMP_FIRE, 2, [0.3, 0.7], 0.4);
+    this.burst(centre, impact.vel, 30, RAMP_LEAVES, 2.2, [0.6, 1.2], 0.6);
+    this.burst(centre, impact.vel, 10, RAMP_SMOKE, 0.8, [1, 1.8], -0.1);
+  }
+
+  /** Breaks `shape` (posed by `matrix`) into spinning shards. Returns the shape's world origin. */
+  private shatter(shape: THREE.BufferGeometry, matrix: THREE.Matrix4, vel: Vec3, style: ShatterStyle): THREE.Vector3 {
     const pos = shape.attributes.position!;
     const col = shape.attributes.color!;
     const centre = new THREE.Vector3().setFromMatrixPosition(matrix);
     const corner = (k: number) => new THREE.Vector3().fromBufferAttribute(pos, k).applyMatrix4(matrix);
 
-    this.pieces = [];
     for (let f = 0; f + 2 < pos.count; f += 3) {
       const a = corner(f);
       const b = corner(f + 1);
       const c = corner(f + 2);
+      const colour = new THREE.Color().fromBufferAttribute(col, f);
+      if (!style.subdivide) {
+        this.addPiece([a, b, c], colour, centre, vel, style);
+        continue;
+      }
       const ab = a.clone().lerp(b, 0.5);
       const bc = b.clone().lerp(c, 0.5);
       const ca = c.clone().lerp(a, 0.5);
-      const colour = new THREE.Color().fromBufferAttribute(col, f);
       for (const tri of [[a, ab, ca], [ab, b, bc], [ca, bc, c], [ab, bc, ca]] as const) {
-        this.addPiece(tri, colour, centre, vel);
+        this.addPiece(tri, colour, centre, vel, style);
       }
     }
+    if (this.pieces.length > MAX_PIECES) this.pieces.splice(0, this.pieces.length - MAX_PIECES);
+    return centre;
+  }
 
-    const burst = (count: number, rampIndex: number, speed: number, life: [number, number], gravity: number) => {
-      for (let k = 0; k < count; k++) {
-        randomUnit(this.tmp).multiplyScalar(rand(0.3, 1) * speed);
-        this.pool.spawn({
-          x: centre.x,
-          y: centre.y + 0.1,
-          z: centre.z,
-          vx: vel.x * 0.4 + this.tmp.x,
-          vy: Math.abs(this.tmp.y) + 1,
-          vz: vel.z * 0.4 + this.tmp.z,
-          life: rand(...life),
-          ramp: rampIndex,
-          gravity,
-        });
-      }
-    };
-    burst(90, RAMP_FIRE, 3.5, [0.5, 1.2], 0.4);
-    burst(30, RAMP_SMOKE, 1.2, [1.5, 2.5], -0.1);
+  private burst(
+    centre: THREE.Vector3,
+    vel: Vec3,
+    count: number,
+    rampIndex: number,
+    speed: number,
+    life: [number, number],
+    gravity: number,
+  ): void {
+    for (let k = 0; k < count; k++) {
+      randomUnit(this.tmp).multiplyScalar(rand(0.3, 1) * speed);
+      this.pool.spawn({
+        x: centre.x,
+        y: centre.y + 0.1,
+        z: centre.z,
+        vx: vel.x * 0.4 + this.tmp.x,
+        vy: Math.abs(this.tmp.y) + 1,
+        vz: vel.z * 0.4 + this.tmp.z,
+        life: rand(...life),
+        ramp: rampIndex,
+        gravity,
+      });
+    }
   }
 
   /** Small effect where a bullet stopped. */
@@ -175,18 +217,24 @@ export class EffectsView {
     geometry.attributes.color!.needsUpdate = true;
   }
 
-  private addPiece(tri: readonly THREE.Vector3[], colour: THREE.Color, craftCentre: THREE.Vector3, vel: Vec3): void {
-    if (this.pieces.length >= MAX_PIECES) return;
+  private addPiece(
+    tri: readonly THREE.Vector3[],
+    colour: THREE.Color,
+    origin: THREE.Vector3,
+    vel: Vec3,
+    style: ShatterStyle,
+  ): void {
     const centre = tri[0]!.clone().add(tri[1]!).add(tri[2]!).divideScalar(3);
-    const outward = centre.clone().sub(craftCentre);
-    if (outward.lengthSq() < 1e-6) randomUnit(outward);
-    outward.normalize().multiplyScalar(rand(1, 2.5));
+    const outward = centre.clone().sub(origin);
+    outward.y = 0;
+    if (outward.lengthSq() < 1e-6) randomUnit(outward).setY(0);
+    outward.normalize().multiplyScalar(rand(...style.outward));
     this.pieces.push({
       centre,
       vel: new THREE.Vector3(
-        vel.x * CARRY_HORIZONTAL + outward.x + rand(-0.5, 0.5),
-        vel.y * CARRY_VERTICAL + Math.abs(outward.y) + rand(1.5, 3.5),
-        vel.z * CARRY_HORIZONTAL + outward.z + rand(-0.5, 0.5),
+        vel.x * style.carryHorizontal + outward.x + rand(-0.5, 0.5),
+        vel.y * style.carryVertical + rand(...style.up),
+        vel.z * style.carryHorizontal + outward.z + rand(-0.5, 0.5),
       ),
       corners: [tri[0]!.clone().sub(centre), tri[1]!.clone().sub(centre), tri[2]!.clone().sub(centre)],
       spin: new THREE.Quaternion(),

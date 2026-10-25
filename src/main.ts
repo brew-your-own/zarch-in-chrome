@@ -153,7 +153,14 @@ function frame(now: number) {
         // The mesh still holds its last pose, which is where the pieces start from.
         effectsView.explode(craftView.craft.geometry, craftView.craft.matrixWorld, craft.vel);
       }
-      for (const impact of stepCannon(cannon, craft, input.fire, terrain, STEP, physics)) effectsView.impact(impact);
+      for (const impact of stepCannon(cannon, craft, input.fire, terrain, STEP, physics)) {
+        effectsView.impact(impact);
+        if (impact.tree) {
+          const { geometry, matrix } = treeView.shape(impact.tree.i, impact.tree.j, impact.tree.kind);
+          effectsView.destroyTree(geometry, matrix, impact);
+          geometry.dispose();
+        }
+      }
       accumulator -= STEP;
     }
   }

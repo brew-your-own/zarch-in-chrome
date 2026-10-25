@@ -150,12 +150,9 @@ export class TreeView {
         const { wood, foliage } = this.byKind[kind];
         const base = treeBase(t, i, j);
         const s = treeScale(t, i, j);
-        this.position.set(base.x, base.y, base.z);
-        this.rotation.setFromAxisAngle(this.up, tileHash(t, i, j, 1) * Math.PI * 2);
-        this.scale.set(s, s, s);
-        this.matrix.compose(this.position, this.rotation, this.scale);
+        this.pose(i, j, this.matrix);
         const n = wood.count;
-        const shade = 0.85 + 0.3 * tileHash(t, i, j, 2);
+        const shade = this.shade(i, j);
         wood.setMatrixAt(n, this.matrix);
         wood.setColorAt(n, this.tint.setRGB(shade, shade, shade));
         foliage.setMatrixAt(n, this.matrix);
@@ -173,6 +170,39 @@ export class TreeView {
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     }
+  }
+
+  /**
+   * The tree that stood on (i, j) as one non-indexed geometry with its final colours baked in,
+   * plus its world pose, so it can be shattered after the sim has removed it.
+   */
+  shape(i: number, j: number, kind: Kind): { geometry: THREE.BufferGeometry; matrix: THREE.Matrix4 } {
+    const shade = this.shade(i, j);
+    const wood = GEOMETRY[kind].wood();
+    const foliage = GEOMETRY[kind].foliage();
+    const leaves = this.palette.foliage(i, j, kind, new THREE.Color()).multiplyScalar(shade);
+    const paint = (g: THREE.BufferGeometry, tint: THREE.Color) => {
+      const c = g.attributes.color!;
+      for (let k = 0; k < c.count; k++) c.setXYZ(k, c.getX(k) * tint.r, c.getY(k) * tint.g, c.getZ(k) * tint.b);
+    };
+    paint(wood, new THREE.Color(shade, shade, shade));
+    paint(foliage, leaves);
+    return { geometry: mergeGeometries([wood, foliage])!, matrix: this.pose(i, j, new THREE.Matrix4()) };
+  }
+
+  /** World transform of the tree on (i, j): base position, stable yaw and size. */
+  private pose(i: number, j: number, out: THREE.Matrix4): THREE.Matrix4 {
+    const t = this.terrain;
+    const base = treeBase(t, i, j);
+    const s = treeScale(t, i, j);
+    this.position.set(base.x, base.y, base.z);
+    this.rotation.setFromAxisAngle(this.up, tileHash(t, i, j, 1) * Math.PI * 2);
+    this.scale.set(s, s, s);
+    return out.compose(this.position, this.rotation, this.scale);
+  }
+
+  private shade(i: number, j: number): number {
+    return 0.85 + 0.3 * tileHash(this.terrain, i, j, 2);
   }
 
   /**

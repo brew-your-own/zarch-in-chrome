@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createCannon, stepCannon } from './cannon';
 import { DEFAULT_PHYSICS as P, noseDirection, spawnCraft, stepCraft, thrustDirection, type CraftState } from './craft';
 import { Terrain } from './terrain';
-import { TREE_PINE } from './trees';
+import { TREE_NONE, TREE_PINE } from './trees';
 
 const DT = 1 / 60;
 
@@ -116,6 +116,23 @@ describe('cannon', () => {
     const impacts = Array.from({ length: 30 }, () => stepCannon(cannon, craft, false, t, DT, P)).flat();
     expect(impacts.map((i) => i.kind)).toEqual(['tree']);
     expect(impacts[0]!.pos.z).toBeGreaterThan(2.5);
+  });
+
+  it('destroys the tree it hits, clearing the way', () => {
+    const t = world();
+    t.setTree(5, 2, TREE_PINE);
+    const craft = hovering(t, 5.5, 1.4, 6.5);
+    const cannon = createCannon();
+    stepCannon(cannon, craft, true, t, DT, P);
+    const impacts = Array.from({ length: 30 }, () => stepCannon(cannon, craft, false, t, DT, P)).flat();
+    expect(impacts[0]!.tree).toEqual({ i: 5, j: 2, kind: TREE_PINE });
+    expect(t.treeAt(5, 2)).toBe(TREE_NONE);
+
+    // A second shot down the same line now flies past where the tree stood.
+    cannon.cooldown = 0;
+    stepCannon(cannon, craft, true, t, DT, P);
+    const later = Array.from({ length: 30 }, () => stepCannon(cannon, craft, false, t, DT, P)).flat();
+    expect(later.some((i) => i.kind === 'tree')).toBe(false);
   });
 });
 

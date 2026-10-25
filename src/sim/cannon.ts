@@ -1,6 +1,6 @@
 import { noseDirection, thrustDirection, type CraftState, type Physics, type Vec3 } from './craft';
 import type { Terrain } from './terrain';
-import { hitsTree } from './trees';
+import { TREE_NONE, treeHit, type TreeKind } from './trees';
 
 export interface Bullet {
   pos: Vec3;
@@ -21,6 +21,8 @@ export interface Impact {
   pos: Vec3;
   vel: Vec3;
   kind: ImpactKind;
+  /** For `tree` impacts: the tree that was destroyed (already removed from the terrain). */
+  tree?: { i: number; j: number; kind: Exclude<TreeKind, typeof TREE_NONE> };
 }
 
 const BULLET_RADIUS = 0.04;
@@ -37,7 +39,8 @@ export function createCannon(): CannonState {
 /**
  * Fires while `fire` is held (not while crashed) and moves every bullet, removing those
  * that hit the terrain or a tree, or outlive `physics.bulletLife`. Bullets fly straight,
- * inheriting the craft's velocity. Returns this step's impacts.
+ * inheriting the craft's velocity. A tree hit by a bullet is destroyed: it is removed
+ * from the terrain. Returns this step's impacts.
  */
 export function stepCannon(
   cannon: CannonState,
@@ -64,9 +67,10 @@ export function stepCannon(
       b.pos.x += b.vel.x * h;
       b.pos.y += b.vel.y * h;
       b.pos.z += b.vel.z * h;
-      const kind = collide(b, terrain);
-      if (kind) {
-        impacts.push({ pos: b.pos, vel: b.vel, kind });
+      const impact = collide(b, terrain);
+      if (impact) {
+        if (impact.tree) terrain.setTree(impact.tree.i, impact.tree.j, TREE_NONE);
+        impacts.push(impact);
         return false;
       }
     }
@@ -93,11 +97,12 @@ function launch(craft: CraftState, physics: Physics): Bullet {
   };
 }
 
-function collide(b: Bullet, terrain: Terrain): ImpactKind | null {
+function collide(b: Bullet, terrain: Terrain): Impact | null {
   const ground = terrain.heightAt(b.pos.x, b.pos.z);
   if (b.pos.y <= ground) {
     b.pos.y = ground;
-    return terrain.tileTypeAt(b.pos.x, b.pos.z) === 'sea' ? 'sea' : 'ground';
+    return { pos: b.pos, vel: b.vel, kind: terrain.tileTypeAt(b.pos.x, b.pos.z) === 'sea' ? 'sea' : 'ground' };
   }
-  return hitsTree(terrain, b.pos.x, b.pos.y, b.pos.z, BULLET_RADIUS) ? 'tree' : null;
+  const tree = treeHit(terrain, b.pos.x, b.pos.y, b.pos.z, BULLET_RADIUS);
+  return tree ? { pos: b.pos, vel: b.vel, kind: 'tree', tree } : null;
 }

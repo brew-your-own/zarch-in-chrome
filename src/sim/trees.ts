@@ -33,11 +33,22 @@ export function treeScale(terrain: Terrain, i: number, j: number): number {
   return 0.8 + 0.4 * tileHash(terrain, i, j);
 }
 
+/** Whether a body of horizontal radius `radius` at (x, y, z) overlaps any tree. */
+export function hitsTree(terrain: Terrain, x: number, y: number, z: number, radius: number): boolean {
+  return treeHit(terrain, x, y, z, radius) !== null;
+}
+
 /**
- * Whether a body of horizontal radius `radius` at (x, y, z) overlaps any tree.
+ * The tile of a tree that a body of horizontal radius `radius` at (x, y, z) overlaps, or null.
  * Only the 3x3 tiles around the point can hold a tree close enough to touch it.
  */
-export function hitsTree(terrain: Terrain, x: number, y: number, z: number, radius: number): boolean {
+export function treeHit(
+  terrain: Terrain,
+  x: number,
+  y: number,
+  z: number,
+  radius: number,
+): { i: number; j: number; kind: Exclude<TreeKind, typeof TREE_NONE> } | null {
   const ci = Math.floor(x);
   const cj = Math.floor(z);
   for (let j = cj - 1; j <= cj + 1; j++) {
@@ -48,10 +59,10 @@ export function hitsTree(terrain: Terrain, x: number, y: number, z: number, radi
       const scale = treeScale(terrain, i, j);
       const base = treeBase(terrain, i, j);
       if (Math.hypot(x - base.x, z - base.z) >= shape.radius * scale + radius) continue;
-      if (y < base.y + shape.height * scale) return true;
+      if (y < base.y + shape.height * scale) return { i, j, kind };
     }
   }
-  return false;
+  return null;
 }
 
 const smoothstep = (a: number, b: number, t: number) => {
