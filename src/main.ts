@@ -7,6 +7,7 @@ import { CraftView } from './render/craftView';
 import { EffectsView } from './render/effectsView';
 import { ExhaustView } from './render/exhaustView';
 import { FighterView } from './render/fighterView';
+import { MissileView } from './render/missileView';
 import { SUN } from './render/lighting';
 import { Palette } from './render/palette';
 import { SeederView } from './render/seederView';
@@ -17,8 +18,9 @@ import { loadSettings, saveSettings } from './settings';
 import { createAutopilot, stepAutopilot, toggleAutopilot } from './sim/autopilot';
 import { createCannon, stepCannon } from './sim/cannon';
 import { spawnCraft, stepCraft } from './sim/craft';
-import { createEnemies, isOverrun, nearestEnemyDistance, stepEnemies } from './sim/enemies';
+import { createEnemies, isOverrun, nearestEnemyDistance, stepEnemies, type EnemyEvent } from './sim/enemies';
 import { buildMap, findMap } from './sim/maps';
+import { createArsenal, detonateBomb, fireMissile, restock, stepMissiles, type WeaponEvent } from './sim/weapons';
 import type { Terrain } from './sim/terrain';
 import { GameOverScreen, recordScore, type GameOverStats } from './ui/gameOver';
 import { Hud } from './ui/hud';
@@ -39,6 +41,9 @@ let terrain: Terrain = buildMap(findMap(settings.mapId));
 const craft = spawnCraft(terrain, physics);
 const cannon = createCannon();
 const autopilot = createAutopilot();
+const arsenal = createArsenal();
+/** Set by Space / a missile press, and acted on in the next sim step. */
+let bombRequested = false;
 const startingLives = () => Math.max(1, Math.round(settings.enemies.lives));
 /** Craft left, including the one flying. Reaching 0 ends the game once the wreck has burned a moment. */
 let lives = startingLives();
@@ -79,6 +84,7 @@ let treeView: TreeView;
 let bulletView: BulletView;
 let shotView: BulletView;
 let fighterView: FighterView;
+let missileView: MissileView;
 let effectsView: EffectsView;
 let seederView: SeederView;
 let skyView: SkyView;
@@ -100,6 +106,7 @@ function buildViews() {
   bulletView = new BulletView();
   shotView = new BulletView(FIGHTER_TRACER);
   fighterView = new FighterView(terrain);
+  missileView = new MissileView();
   effectsView = new EffectsView(terrain);
   seederView = new SeederView(terrain);
   skyView = new SkyView(terrain.size);
@@ -120,6 +127,8 @@ function buildViews() {
     shotView.heads,
     fighterView.shadows,
     fighterView.fighters,
+    missileView.missiles,
+    effectsView.shockwave,
     seederView.shadows,
     seederView.seeders,
     seederView.spores,
@@ -154,6 +163,7 @@ function newGame(mapId: string) {
   Object.assign(craft, spawnCraft(terrain, physics));
   Object.assign(cannon, createCannon());
   Object.assign(autopilot, createAutopilot());
+  Object.assign(arsenal, createArsenal());
   lives = startingLives();
   Object.assign(enemies, newEnemies());
   buildViews();
@@ -198,17 +208,25 @@ const gameOverScreen = new GameOverScreen(document.querySelector<HTMLDivElement>
 showPanel();
 
 // R engages auto-refuel (once per wave), or hands control back if it is flying.
+// Space sets off a smart bomb; E fires a homing missile (as does the middle button).
 document.addEventListener('keydown', (e) => {
-  if (e.code !== 'KeyR' || e.repeat || !input.locked || gameOver) return;
-  const wasActive = autopilot.active;
-  if (toggleAutopilot(autopilot, craft, terrain, enemies.wave, settings.autopilot) && !wasActive) sound.autopilot();
+  if (e.repeat || !input.locked || gameOver) return;
+  if (e.code === 'KeyR') {
+    const wasActive = autopilot.active;
+    if (toggleAutopilot(autopilot, craft, terrain, enemies.wave, settings.autopilot) && !wasActive) sound.autopilot();
+  } else if (e.code === 'Space') {
+    e.preventDefault();
+    bombRequested = true;
+  } else if (e.code === 'KeyE') {
+    input.missile = true;
+  }
 });
 
 // Dev-only handle for poking at the game from the console or browser automation.
 // Setting `zarch.input.locked = true` runs the simulation without pointer lock.
 if (import.meta.env.DEV) {
   Object.assign(window, {
-    zarch: { craft, cannon, autopilot, enemies, input, settings, sound, get lives() { return lives; }, get terrain() { return terrain; }, get gameOver() { return gameOver; } },
+    zarch: { craft, cannon, autopilot, arsenal, enemies, input, settings, sound, get lives() { return lives; }, get terrain() { return terrain; }, get gameOver() { return gameOver; } },
   });
 }
 
@@ -230,6 +248,55 @@ function resetMotion() {
   Object.assign(prevPos, craft.pos);
   rig.snap(craft.pos.y);
   accumulator = 0;
+}
+
+/** Explosions, effects and sounds for what the enemies and special weapons did this step. */
+function showEvent(event: EnemyEvent | WeaponEvent) {
+  switch (event.type) {
+    case 'seederDestroyed': {
+      const { geometry, matrix } = seederView.shape(event.seeder, craft.pos, simTime);
+      effectsView.explode(geometry, matrix, event.seeder.vel);
+      sound.explosion('seeder', distanceFromCraft(event.seeder.pos));
+      rig.shake(0.5, distanceFromCraft(event.seeder.pos));
+      break;
+    }
+    case 'fighterDestroyed': {
+      const { geometry, matrix } = fighterView.shape(event.fighter, craft.pos);
+      effectsView.explode(geometry, matrix, event.fighter.vel);
+      sound.explosion('fighter', distanceFromCraft(event.fighter.pos));
+      rig.shake(0.55, distanceFromCraft(event.fighter.pos));
+      break;
+    }
+    case 'fighterFired':
+      sound.enemyShot(distanceFromCraft(event.pos));
+      break;
+    case 'waveStarted':
+      restock(arsenal, event.wave, settings.weapons);
+      break;
+    case 'bombDetonated':
+      effectsView.bomb(event.pos, event.radius);
+      sound.bomb();
+      rig.shake(1);
+      flash();
+      break;
+    case 'missileLaunched':
+      sound.missile();
+      break;
+    case 'missileSpent':
+      effectsView.pop(event.pos);
+      sound.explosion('tree', distanceFromCraft(event.pos));
+      break;
+  }
+}
+
+/** A brief white flash over the whole screen, for a smart bomb. */
+const flashOverlay = document.createElement('div');
+flashOverlay.className = 'flash';
+document.body.append(flashOverlay);
+function flash() {
+  flashOverlay.classList.remove('go');
+  void flashOverlay.offsetWidth; // restart the animation
+  flashOverlay.classList.add('go');
 }
 
 /** Horizontal distance from the craft across the wrapping world. */
@@ -304,21 +371,17 @@ function frame(now: number) {
           geometry.dispose();
         }
       }
-      for (const event of stepEnemies(enemies, craft, cannon.bullets, terrain, STEP, settings.enemies, physics)) {
-        if (event.type === 'seederDestroyed') {
-          const { geometry, matrix } = seederView.shape(event.seeder, craft.pos, simTime);
-          effectsView.explode(geometry, matrix, event.seeder.vel);
-          sound.explosion('seeder', distanceFromCraft(event.seeder.pos));
-          rig.shake(0.5, distanceFromCraft(event.seeder.pos));
-        } else if (event.type === 'fighterDestroyed') {
-          const { geometry, matrix } = fighterView.shape(event.fighter, craft.pos);
-          effectsView.explode(geometry, matrix, event.fighter.vel);
-          sound.explosion('fighter', distanceFromCraft(event.fighter.pos));
-          rig.shake(0.55, distanceFromCraft(event.fighter.pos));
-        } else if (event.type === 'fighterFired') {
-          sound.enemyShot(distanceFromCraft(event.pos));
-        }
+      for (const event of stepEnemies(enemies, craft, cannon.bullets, terrain, STEP, settings.enemies, physics)) showEvent(event);
+      if (bombRequested) {
+        bombRequested = false;
+        detonateBomb(arsenal, craft, enemies, terrain, settings.weapons)?.forEach(showEvent);
       }
+      if (input.missile) {
+        input.missile = false;
+        const launch = fireMissile(arsenal, craft, enemies, terrain, physics);
+        if (launch) showEvent(launch);
+      }
+      for (const event of stepMissiles(arsenal, enemies, terrain, STEP, settings.weapons)) showEvent(event);
       if (!wasCrashed && craft.status === 'crashed') {
         // The mesh still holds its last pose, which is where the pieces start from.
         effectsView.explode(craftView.craft.geometry, craftView.craft.matrixWorld, craft.vel);
@@ -350,6 +413,8 @@ function frame(now: number) {
   craftView.update(craft, renderPos);
   exhaustView.update(craft, craftView.craft.matrixWorld, effectsDt);
   bulletView.update(cannon.bullets);
+  missileView.update(arsenal.inFlight);
+  if (effectsDt > 0) for (const m of arsenal.inFlight) effectsView.missileTrail(m.pos);
   shotView.update(enemies.shots, { terrain, focus: renderPos });
   fighterView.update(enemies, renderPos, effectsDt);
   seederView.update(enemies, renderPos, simTime);
@@ -362,7 +427,7 @@ function frame(now: number) {
   renderer.render(scene, camera);
 
   const alert = proximityAlert();
-  hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, settings.autopilot, alert, lives, effectsDt);
+  hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, settings.autopilot, alert, lives, arsenal, effectsDt);
   playSounds(alert, elapsed);
   scanner.update(terrain, palette, craft, enemies, settings.sound.alertDistance, alert, elapsed);
 

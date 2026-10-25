@@ -7,13 +7,15 @@ const FULL_TILT_PIXELS = 250;
  * Pointer-locked mouse. The pointer is hidden and its movement drives a
  * virtual cursor inside the unit disk, standing in for the mouse position
  * relative to the screen centre in the original game.
- * Left button: thrust. Right button: fire (not used yet).
+ * Left button: thrust. Right button: fire. Middle button: homing missile.
  */
 export class MouseInput {
   aimX = 0;
   aimY = 0;
   thrust = false;
   fire = false;
+  /** Set by a middle-button press; the game clears it once it has fired a missile (or tried to). */
+  missile = false;
   locked = false;
 
   constructor(
@@ -22,7 +24,7 @@ export class MouseInput {
   ) {
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === target;
-      if (!this.locked) this.thrust = this.fire = false;
+      if (!this.locked) this.thrust = this.fire = this.missile = false;
       this.onLockChange(this.locked);
     });
     document.addEventListener('mousemove', (e) => {
@@ -39,6 +41,10 @@ export class MouseInput {
       if (!this.locked) return;
       if (e.button === 0) this.thrust = true;
       if (e.button === 2) this.fire = true;
+      if (e.button === 1) {
+        this.missile = true;
+        e.preventDefault();
+      }
     });
     document.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.thrust = false;

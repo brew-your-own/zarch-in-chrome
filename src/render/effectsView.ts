@@ -27,6 +27,8 @@ const PIECE_LIFE = 3;
 const PIECE_SHRINK = 0.6;
 const PIECE_BOUNCE = 0.35;
 const PIECE_FRICTION = 0.7;
+/** Seconds a smart bomb's shockwave ring takes to reach its radius and fade. */
+const SHOCKWAVE_TIME = 0.7;
 
 /** How a shape breaks apart. */
 interface ShatterStyle {
@@ -70,6 +72,10 @@ function randomUnit(out: THREE.Vector3): THREE.Vector3 {
  */
 export class EffectsView {
   readonly debris: THREE.Mesh;
+  /** A smart bomb's expanding ring, hidden when no bomb has gone off lately. */
+  readonly shockwave: THREE.Mesh;
+  private shockwaveAge = Infinity;
+  private shockwaveRadius = 1;
   private readonly pool: ParticlePool;
   private pieces: Piece[] = [];
   private readonly positions = new Float32Array(MAX_PIECES * 9);
@@ -88,6 +94,37 @@ export class EffectsView {
       new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide }),
     );
     this.debris.frustumCulled = false;
+
+    const ring = new THREE.RingGeometry(0.85, 1, 64);
+    ring.rotateX(-Math.PI / 2);
+    this.shockwave = new THREE.Mesh(
+      ring,
+      new THREE.MeshBasicMaterial({ color: 0xc0f0ff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }),
+    );
+    this.shockwave.visible = false;
+    this.shockwave.frustumCulled = false;
+  }
+
+  /** A smart bomb going off at `pos`: a ring sweeping out to `radius` and a white flash of sparks. */
+  bomb(pos: Vec3, radius: number): void {
+    this.shockwave.position.set(pos.x, pos.y + 0.1, pos.z);
+    this.shockwaveAge = 0;
+    this.shockwaveRadius = radius;
+    this.burst(new THREE.Vector3(pos.x, pos.y, pos.z), { x: 0, y: 0, z: 0 }, 120, RAMP_SPARK, 7, [0.4, 0.9], 0.2);
+  }
+
+  /** Exhaust behind a missile in flight: a short flame and a puff of smoke. */
+  missileTrail(pos: Vec3): void {
+    const jitter = () => rand(-0.15, 0.15);
+    this.pool.spawn({ x: pos.x, y: pos.y, z: pos.z, vx: jitter(), vy: jitter(), vz: jitter(), life: rand(0.1, 0.2), ramp: RAMP_FIRE, gravity: 0 });
+    this.pool.spawn({ x: pos.x, y: pos.y, z: pos.z, vx: jitter(), vy: 0.2, vz: jitter(), life: rand(0.5, 0.9), ramp: RAMP_SMOKE, gravity: -0.05 });
+  }
+
+  /** A missile blowing up without a target: a small fireball. */
+  pop(pos: Vec3): void {
+    const centre = new THREE.Vector3(pos.x, pos.y, pos.z);
+    this.burst(centre, { x: 0, y: 0, z: 0 }, 25, RAMP_FIRE, 2, [0.3, 0.6], 0.3);
+    this.burst(centre, { x: 0, y: 0, z: 0 }, 8, RAMP_SMOKE, 0.8, [0.8, 1.4], -0.1);
   }
 
   get particles(): THREE.Points {
@@ -219,6 +256,15 @@ export class EffectsView {
     const splashes: { x: number; z: number }[] = [];
     this.pool.update(dt, gravity);
     this.pieces = this.pieces.filter((p) => (p.age += dt) < PIECE_LIFE);
+
+    this.shockwaveAge += dt;
+    const wave = this.shockwaveAge / SHOCKWAVE_TIME;
+    this.shockwave.visible = wave < 1;
+    if (wave < 1) {
+      const r = Math.max(0.01, this.shockwaveRadius * (1 - (1 - wave) ** 3));
+      this.shockwave.scale.set(r, 1, r);
+      (this.shockwave.material as THREE.MeshBasicMaterial).opacity = 1 - wave;
+    }
 
     for (const p of this.pieces) {
       p.vel.y -= gravity * dt;

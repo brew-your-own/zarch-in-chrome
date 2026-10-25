@@ -1,5 +1,6 @@
 import { autopilotReady, type AutopilotSettings, type AutopilotState } from '../sim/autopilot';
 import type { CraftState, Physics } from '../sim/craft';
+import type { Arsenal } from '../sim/weapons';
 import type { EnemySettings, EnemyState } from '../sim/enemies';
 import type { Terrain } from '../sim/terrain';
 
@@ -35,6 +36,7 @@ export class Hud {
   private readonly flight: HTMLDivElement;
   private readonly game: HTMLDivElement;
   private readonly lives: HTMLSpanElement;
+  private readonly arms: HTMLSpanElement;
   private readonly virus: HTMLDivElement;
   private readonly arrow: HTMLSpanElement;
   private readonly padText: HTMLSpanElement;
@@ -55,6 +57,9 @@ export class Hud {
     const lives = el('div', 'hud-row', root);
     el('span', 'hud-label', lives).textContent = 'LIVES';
     this.lives = el('span', 'hud-lives', lives);
+    const arms = el('div', 'hud-row', root);
+    el('span', 'hud-label', arms).textContent = 'ARMS';
+    this.arms = el('span', 'hud-arms', arms);
     this.virus = el('div', 'hud-row', root);
     const compass = el('div', 'hud-row', root);
     el('span', 'hud-label', compass).textContent = 'PAD';
@@ -81,6 +86,7 @@ export class Hud {
     alert: number,
     /** Craft left, including the one flying. */
     lives: number,
+    arsenal: Arsenal,
     dt: number,
   ): void {
     const fuel = Math.max(0, Math.min(1, craft.fuel / physics.maxFuel));
@@ -96,6 +102,7 @@ export class Hud {
     // One marker per craft left; the flying one counts until it is wrecked.
     this.lives.textContent = '▲ '.repeat(Math.max(0, lives)).trim() || '—';
     this.lives.classList.toggle('alert', lives <= 1);
+    this.arms.textContent = `BOMB ${arsenal.bombs > 0 ? '●'.repeat(arsenal.bombs) : '–'}   MSL ${arsenal.missiles}`;
     const infected = terrain.infectedFraction();
     this.virus.textContent = `VIRUS ${(infected * 100).toFixed(1)}% / ${Math.round(rules.overrunAt * 100)}%`;
     this.virus.classList.toggle('alert', infected >= rules.overrunAt * VIRUS_WARNING);

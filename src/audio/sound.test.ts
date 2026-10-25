@@ -42,6 +42,8 @@ describe('sound helpers', () => {
       engine.explosion('craft', 3);
       engine.proximity(0.5);
       engine.splash(0.5, 2);
+      engine.bomb();
+      engine.missile();
       engine.enemyShot(3);
       engine.music(0.5, false, 1 / 60);
       engine.update();

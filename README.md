@@ -11,12 +11,16 @@ A browser tribute to **Zarch** (David Braben, Acorn Archimedes, 1987), later por
 | Move the mouse | Tilt the craft (it leans towards the pointer; thrust pushes along its tilt) |
 | Left button | Thrust |
 | Right button | Fire |
+| Middle button or E | Homing missile: locks onto the nearest enemy (one more each wave, they build up) |
+| Space | Smart bomb: clears every enemy around you (one per wave from wave 3) |
 | R | Auto-refuel: fly back to the pad and land (once per wave) |
 | Esc | Pause and open the settings panel |
 
 Land gently on the grey launch pad to refuel. The pad is also a safe haven: fighters hold fire while you sit on it.
 
-The pause panel has the map picker and lets you tune physics, enemies, lives, colours, sound and music. Settings are saved in your browser.
+Each wave is a little harder than the last: enemies move and shoot faster and aim better, up to a cap.
+
+The pause panel has the map picker and lets you tune physics, enemies, difficulty, weapons, lives, colours, sound and music. Settings are saved in your browser.
 
 ## Development
 

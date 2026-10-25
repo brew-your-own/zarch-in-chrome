@@ -191,6 +191,46 @@ export class SoundEngine {
     src.stop(t + length + 0.02);
   }
 
+  /** A smart bomb: the biggest explosion, under a long sub-bass drop. */
+  bomb(): void {
+    const { ctx, master } = this;
+    if (!ctx || !master) return;
+    this.explosion('craft');
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(90, t);
+    osc.frequency.exponentialRampToValueAtTime(24, t + 1.4);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.7, t + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 1.6);
+    osc.connect(gain).connect(master);
+    osc.start(t);
+    osc.stop(t + 1.65);
+  }
+
+  /** A missile launching: a rising whoosh of filtered noise. */
+  missile(): void {
+    const { ctx, master, noise } = this;
+    if (!ctx || !master || !noise) return;
+    const t = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = noise;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = 2;
+    band.frequency.setValueAtTime(300, t);
+    band.frequency.exponentialRampToValueAtTime(2600, t + 0.45);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.3, t + 0.06);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+    src.connect(band).connect(gain).connect(master);
+    src.start(t, Math.random());
+    src.stop(t + 0.62);
+  }
+
   /** A fighter's shot, `distance` tiles away: a lower, harsher zap than the craft's cannon. */
   enemyShot(distance: number): void {
     const { ctx, master } = this;

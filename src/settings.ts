@@ -5,17 +5,19 @@ import { DEFAULT_COLOURS, type ColourSettings } from './render/palette';
 import { DEFAULT_AUTOPILOT, type AutopilotSettings } from './sim/autopilot';
 import { DEFAULT_PHYSICS, type Physics } from './sim/craft';
 import { DEFAULT_ENEMIES, type EnemySettings } from './sim/enemies';
+import { DEFAULT_WEAPONS, type WeaponSettings } from './sim/weapons';
 import { DEFAULT_MAP_ID, findMap } from './sim/maps';
 
 /**
  * Everything the pause panel can change. The objects are mutated in place:
- * the sim, views and sound engine hold references to `physics`, `plume`, `colours`, `enemies`, `autopilot`, `camera` and `sound`.
+ * the sim, views and sound engine hold references to `physics`, `plume`, `colours`, `enemies`, `weapons`, `autopilot`, `camera` and `sound`.
  */
 export interface Settings {
   physics: Physics;
   plume: PlumeSettings;
   colours: ColourSettings;
   enemies: EnemySettings;
+  weapons: WeaponSettings;
   autopilot: AutopilotSettings;
   camera: CameraSettings;
   sound: SoundSettings;
@@ -30,6 +32,7 @@ export function defaultSettings(): Settings {
     plume: { ...DEFAULT_PLUME },
     colours: { ...DEFAULT_COLOURS },
     enemies: { ...DEFAULT_ENEMIES },
+    weapons: { ...DEFAULT_WEAPONS },
     autopilot: { ...DEFAULT_AUTOPILOT },
     camera: { ...DEFAULT_CAMERA },
     sound: { ...DEFAULT_SOUND },
@@ -61,6 +64,7 @@ export function loadSettings(): Settings {
     mergeValues(settings.plume, s.plume);
     mergeValues(settings.colours, s.colours);
     mergeValues(settings.enemies, s.enemies);
+    mergeValues(settings.weapons, s.weapons);
     mergeValues(settings.autopilot, s.autopilot);
     mergeValues(settings.camera, s.camera);
     mergeValues(settings.sound, s.sound);

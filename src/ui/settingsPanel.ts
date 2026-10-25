@@ -6,6 +6,7 @@ import { DEFAULT_PLUME } from '../render/exhaustView';
 import { DEFAULT_AUTOPILOT } from '../sim/autopilot';
 import { DEFAULT_PHYSICS } from '../sim/craft';
 import { DEFAULT_ENEMIES } from '../sim/enemies';
+import { DEFAULT_WEAPONS } from '../sim/weapons';
 import { buildMap, MAPS } from '../sim/maps';
 import type { Terrain } from '../sim/terrain';
 import type { Settings } from '../settings';
@@ -52,6 +53,8 @@ const ENEMY_SLIDERS: SliderSpec<Settings['enemies']>[] = [
 
 const GAME_SLIDERS: SliderSpec<Settings['enemies']>[] = [
   { key: 'lives', label: 'Lives', min: 1, max: 9, step: 1 },
+  { key: 'difficultyRamp', label: 'Difficulty ramp', min: 0, max: 30, step: 1, unit: '% / wave', scale: 100 },
+  { key: 'difficultyCap', label: 'Difficulty cap', min: 1, max: 4, step: 0.1, unit: '×' },
   { key: 'overrunAt', label: 'Game over at', min: 10, max: 100, step: 5, unit: '% land', scale: 100 },
 ];
 
@@ -67,6 +70,15 @@ const PLUME_SLIDERS: SliderSpec<Settings['plume']>[] = [
   { key: 'spread', label: 'Spread', min: 0, max: 3, step: 0.05 },
   { key: 'lifetime', label: 'Lifetime', min: 0.1, max: 2, step: 0.05, unit: 's' },
   { key: 'size', label: 'Particle size', min: 0.02, max: 0.3, step: 0.01 },
+];
+
+const WEAPON_SLIDERS: SliderSpec<Settings['weapons']>[] = [
+  { key: 'bombsPerWave', label: 'Smart bombs / wave', min: 0, max: 3, step: 1 },
+  { key: 'bombsFromWave', label: 'Smart bombs from wave', min: 1, max: 10, step: 1 },
+  { key: 'bombRadius', label: 'Smart bomb radius', min: 4, max: 30, step: 1, unit: 'tiles' },
+  { key: 'missilesPerWave', label: 'Missiles / wave', min: 0, max: 3, step: 1 },
+  { key: 'missileSpeed', label: 'Missile speed', min: 4, max: 20, step: 0.5, unit: 'u/s' },
+  { key: 'missileTurnRate', label: 'Missile turn rate', min: 0.5, max: 8, step: 0.5, unit: 'rad/s' },
 ];
 
 const CAMERA_SLIDERS: SliderSpec<Settings['camera']>[] = [
@@ -156,9 +168,12 @@ export class SettingsPanel {
     for (const spec of CANNON_SLIDERS) tuning.append(this.slider(settings.physics, spec));
     tuning.append(el('h2', undefined, 'Game'));
     for (const spec of GAME_SLIDERS) tuning.append(this.slider(settings.enemies, spec));
-    tuning.append(el('p', 'note', 'Lives apply from the next game.'));
+    tuning.append(el('p', 'note', 'Lives apply from the next game. Each wave after the first is harder by the ramp, up to the cap.'));
     tuning.append(el('h2', undefined, 'Enemies'));
     for (const spec of ENEMY_SLIDERS) tuning.append(this.slider(settings.enemies, spec));
+    tuning.append(el('h2', undefined, 'Weapons'));
+    for (const spec of WEAPON_SLIDERS) tuning.append(this.slider(settings.weapons, spec));
+    tuning.append(el('p', 'note', 'Smart bombs are handed out each wave and don\'t carry over; missiles build up (up to 9). New stock amounts apply from the next wave.'));
     tuning.append(el('h2', undefined, 'Assists'));
     tuning.append(this.toggle(settings.autopilot, 'enabled', 'Auto-refuel [R]', 'Once per wave, flies you back to the pad and lands.'));
     tuning.append(el('h2', undefined, 'Thruster plume'));
@@ -188,6 +203,7 @@ export class SettingsPanel {
       Object.assign(settings.plume, DEFAULT_PLUME);
       Object.assign(settings.colours, DEFAULT_COLOURS);
       Object.assign(settings.enemies, DEFAULT_ENEMIES);
+      Object.assign(settings.weapons, DEFAULT_WEAPONS);
       Object.assign(settings.autopilot, DEFAULT_AUTOPILOT);
       Object.assign(settings.camera, DEFAULT_CAMERA);
       Object.assign(settings.sound, DEFAULT_SOUND);
@@ -201,7 +217,7 @@ export class SettingsPanel {
     panel.append(
       header,
       columns,
-      el('p', 'help', 'Move mouse: tilt craft · Left button: thrust · Right button: fire · R: auto-refuel · Esc: pause'),
+      el('p', 'help', 'Move mouse: tilt craft · Left button: thrust · Right button: fire · Middle button / E: missile · Space: smart bomb · R: auto-refuel · Esc: pause'),
     );
     root.append(panel);
     this.highlightMap();

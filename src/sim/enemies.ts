@@ -27,6 +27,10 @@ export interface EnemySettings {
   fighterAccuracy: number;
   /** Craft per game; losing the last one ends it. */
   lives: number;
+  /** How much harder each wave after the first gets (0.1 = 10% per wave). See `waveSettings`. */
+  difficultyRamp: number;
+  /** The most the ramp can multiply the difficulty by. */
+  difficultyCap: number;
 }
 
 export const DEFAULT_ENEMIES: Readonly<EnemySettings> = Object.freeze({
@@ -40,7 +44,31 @@ export const DEFAULT_ENEMIES: Readonly<EnemySettings> = Object.freeze({
   fighterFireInterval: 2.5,
   fighterAccuracy: 0.35,
   lives: 3,
+  difficultyRamp: 0.12,
+  difficultyCap: 2.5,
 });
+
+/** Fighters never aim better than this, however late the wave. */
+const MAX_RAMPED_ACCURACY = 0.85;
+
+/**
+ * The enemy settings in force during `wave`. Each wave after the first multiplies the
+ * difficulty by `1 + difficultyRamp × (wave − 1)`, capped at `difficultyCap`: spores drop and
+ * fighters fire that much more often, enemies fly faster by half that, and fighters aim
+ * better. Virus spread, wave sizes and the game rules are not ramped.
+ */
+export function waveSettings(settings: EnemySettings, wave: number): EnemySettings {
+  const f = Math.max(1, Math.min(Math.max(1, settings.difficultyCap), 1 + Math.max(0, settings.difficultyRamp) * (wave - 1)));
+  const speed = 1 + (f - 1) * 0.5;
+  return {
+    ...settings,
+    seederSpeed: settings.seederSpeed * speed,
+    sporeInterval: settings.sporeInterval / f,
+    fighterSpeed: settings.fighterSpeed * speed,
+    fighterFireInterval: settings.fighterFireInterval / f,
+    fighterAccuracy: Math.min(Math.max(settings.fighterAccuracy, MAX_RAMPED_ACCURACY), settings.fighterAccuracy + (f - 1) * 0.25),
+  };
+}
 
 /** Whether the virus has taken over enough land to end the game. */
 export function isOverrun(terrain: Terrain, settings: EnemySettings): boolean {
@@ -114,8 +142,8 @@ export function createEnemies(seed: number): EnemyState {
 /**
  * Advances seeders, fighters, their spores and shots, and the virus by `dt`. Bullets that
  * hit an enemy are removed from `bullets`; an enemy touching the craft wrecks both, and so
- * does a fighter's shot hitting it. Returns what happened, for the
- * renderer (explosions) and the HUD.
+ * does a fighter's shot hitting it. `base` is the panel's settings; the wave's are derived
+ * from them by `waveSettings`. Returns what happened, for the renderer (explosions) and the HUD.
  */
 export function stepEnemies(
   enemies: EnemyState,
@@ -123,15 +151,17 @@ export function stepEnemies(
   bullets: Bullet[],
   terrain: Terrain,
   dt: number,
-  settings: EnemySettings,
+  base: EnemySettings,
   physics: Physics,
 ): EnemyEvent[] {
   const events: EnemyEvent[] = [];
+  let settings = waveSettings(base, enemies.wave);
 
   if (enemies.seeders.length === 0 && enemies.fighters.length === 0 && settings.firstWave >= 1) {
     enemies.nextWaveIn -= dt;
     if (enemies.nextWaveIn <= 0) {
       enemies.wave++;
+      settings = waveSettings(base, enemies.wave);
       const count = Math.round(settings.firstWave) + enemies.wave - 1;
       for (let k = 0; k < count; k++) enemies.seeders.push(spawnSeeder(enemies, craft, terrain, settings));
       const fighters = Math.round(Math.max(0, settings.fighters) * (enemies.wave - 1));
