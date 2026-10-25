@@ -29,6 +29,9 @@ const PAD = [new THREE.Color(0x9a9a9a), new THREE.Color(0xb4b4b4)];
 const PINE = new THREE.Color(0x24753a);
 const SUMMER_LEAVES = new THREE.Color(0x5aa83a);
 const AUTUMN_LEAVES = [0xd9b52a, 0xe5862a, 0xd0502a, 0xa8321e].map((c) => new THREE.Color(c));
+/** The virus: a crimson-magenta kept clear of the brick-red autumn leaves. */
+export const VIRUS = new THREE.Color(0xd8185a);
+const VIRUS_LEAVES = new THREE.Color(0xa0104a);
 /** Odd checkerboard tiles are this much darker. */
 const CHECKER_DARK = 0.82;
 
@@ -65,7 +68,9 @@ export class Palette {
 
     const n = t.size;
     const k = (((j % n) + n) % n) * n + (((i % n) + n) % n);
-    if (this.patchAmount[k]! > 1 - 0.6 * this.colours.patches) {
+    if (t.isInfected(i, j)) {
+      out.copy(VIRUS);
+    } else if (this.patchAmount[k]! > 1 - 0.6 * this.colours.patches) {
       out.copy(PATCHES[Math.min(PATCHES.length - 1, Math.floor(this.patchKind[k]! * PATCHES.length))]!);
     } else {
       grass(this.colours.grassTone, out);
@@ -73,8 +78,9 @@ export class Palette {
     return parity ? out.multiplyScalar(CHECKER_DARK) : out;
   }
 
-  /** Foliage colour of the tree on tile (i, j). */
+  /** Foliage colour of the tree on tile (i, j); trees on infected land take the virus colour. */
   foliage(i: number, j: number, kind: TreeKind, out: THREE.Color): THREE.Color {
+    if (this.terrain.isInfected(i, j)) return out.copy(VIRUS_LEAVES);
     if (kind === TREE_PINE) return out.copy(PINE);
     if (tileHash(this.terrain, i, j, 3) >= this.colours.autumn) return out.copy(SUMMER_LEAVES);
     return out.copy(AUTUMN_LEAVES[Math.floor(tileHash(this.terrain, i, j, 4) * AUTUMN_LEAVES.length)]!);

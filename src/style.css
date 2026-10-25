@@ -9,10 +9,40 @@
 
 html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
 #view { display: block; width: 100vw; height: 100vh; }
-#hud {
-  position: fixed; top: 8px; left: 12px; color: var(--accent); white-space: pre;
-  font: 14px/1.4 monospace; pointer-events: none; text-shadow: 1px 1px #000;
+/* HUD with the scanner directly under it, sharing one width. */
+#hud-column {
+  position: fixed; top: 12px; left: 12px; display: flex; flex-direction: column; gap: 8px;
+  pointer-events: none;
 }
+#hud {
+  padding: 10px 14px; min-width: 260px;
+  color: var(--accent); white-space: pre; font: bold 17px/1.5 monospace;
+  background: rgba(0, 0, 0, 0.45); border: 1px solid var(--line);
+  pointer-events: none; text-shadow: 1px 1px #000;
+}
+.hud-row { display: flex; align-items: center; gap: 10px; }
+.hud-label { color: var(--muted); min-width: 3.2em; }
+.hud-value { min-width: 3em; text-align: right; }
+.fuel-bar { flex: 1; height: 12px; border: 1px solid var(--accent); background: rgba(0, 0, 0, 0.5); }
+.fuel-fill { height: 100%; background: var(--accent); }
+.fuel-fill.low { background: var(--warn); animation: blink 0.6s steps(2, start) infinite; }
+.alert { color: var(--warn); }
+.pad-arrow { display: inline-flex; width: 20px; height: 20px; }
+.hud-status { min-height: 1.5em; color: #fff; }
+.hud-status.warn { color: var(--warn); animation: blink 0.6s steps(2, start) infinite; }
+@keyframes blink { to { visibility: hidden; } }
+
+#scanner {
+  width: 100%; height: auto; aspect-ratio: 1; box-sizing: border-box;
+  image-rendering: pixelated; border: 1px solid var(--line); background: #000;
+}
+
+.wave-banner {
+  position: fixed; top: 22%; left: 0; right: 0; text-align: center; pointer-events: none;
+  font: bold 56px monospace; letter-spacing: 0.3em; color: var(--accent);
+  text-shadow: 3px 3px #000; opacity: 0; transition: opacity 0.4s;
+}
+.wave-banner.visible { opacity: 1; }
 
 #overlay {
   position: fixed; inset: 0; overflow-y: auto; display: flex; padding: 24px 16px;

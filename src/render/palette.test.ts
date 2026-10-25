@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { buildMap, findMap } from '../sim/maps';
 import { TREE_PINE, TREE_ROUND } from '../sim/trees';
-import { COLOUR_PRESETS, Palette, type ColourSettings } from './palette';
+import { COLOUR_PRESETS, Palette, VIRUS, type ColourSettings } from './palette';
 
 const terrain = buildMap(findMap('valleys'));
 
@@ -67,5 +67,20 @@ describe('Palette', () => {
     const b = palette.tile(i + 1, j, new THREE.Color()).getHexString();
     expect(a).not.toBe(b);
     expect(palette.tile(i, j, new THREE.Color(), false).getHexString()).toBe(palette.tile(i + 1, j, new THREE.Color(), false).getHexString());
+  });
+
+  it('paints infected land and its trees in the virus colour', () => {
+    const t = buildMap(findMap('valleys'));
+    const palette = new Palette(t, { ...COLOUR_PRESETS.late.colours });
+    const [i, j] = (() => {
+      for (let b = 0; b < t.size; b++) for (let a = 0; a < t.size; a++) if (t.tileType(a, b) === 'land') return [a, b];
+      throw new Error('no land');
+    })();
+    const before = palette.tile(i, j, new THREE.Color(), false).getHex();
+    t.infect(i, j);
+    expect(palette.tile(i, j, new THREE.Color(), false).getHex()).not.toBe(before);
+    expect(palette.tile(i, j, new THREE.Color(), false).getHex()).toBe(VIRUS.getHex());
+    const leaves = palette.foliage(i, j, TREE_PINE, new THREE.Color());
+    expect(leaves.r).toBeGreaterThan(leaves.g * 3);
   });
 });

@@ -2,6 +2,7 @@ import { drawMinimap } from '../render/minimap';
 import { COLOUR_PRESETS, DEFAULT_COLOURS, Palette } from '../render/palette';
 import { DEFAULT_PLUME } from '../render/exhaustView';
 import { DEFAULT_PHYSICS } from '../sim/craft';
+import { DEFAULT_ENEMIES } from '../sim/enemies';
 import { buildMap, MAPS } from '../sim/maps';
 import type { Terrain } from '../sim/terrain';
 import type { Settings } from '../settings';
@@ -33,6 +34,13 @@ const CANNON_SLIDERS: SliderSpec<Settings['physics']>[] = [
   { key: 'fireRate', label: 'Fire rate', min: 1, max: 20, step: 0.5, unit: '/s' },
   { key: 'bulletSpeed', label: 'Bullet speed', min: 4, max: 30, step: 0.5, unit: 'u/s' },
   { key: 'bulletLife', label: 'Range', min: 0.3, max: 3, step: 0.1, unit: 's' },
+];
+
+const ENEMY_SLIDERS: SliderSpec<Settings['enemies']>[] = [
+  { key: 'firstWave', label: 'Seeders (wave 1)', min: 0, max: 10, step: 1 },
+  { key: 'seederSpeed', label: 'Seeder speed', min: 0.5, max: 8, step: 0.1, unit: 'u/s' },
+  { key: 'sporeInterval', label: 'Spore interval', min: 0.3, max: 6, step: 0.1, unit: 's' },
+  { key: 'virusSpread', label: 'Virus spread', min: 0, max: 20, step: 0.5, unit: '%/s', scale: 100 },
 ];
 
 const PLUME_SLIDERS: SliderSpec<Settings['plume']>[] = [
@@ -79,7 +87,12 @@ export class SettingsPanel {
   private readonly ratio = el('p', 'note');
   private readonly thumbs: { canvas: HTMLCanvasElement; terrain: Terrain; palette: Palette }[] = [];
   private readonly presetButtons = new Map<keyof typeof COLOUR_PRESETS, HTMLButtonElement>();
-  private shown?: { terrain: Terrain; palette: Palette; marker: { x: number; z: number } };
+  private shown?: {
+    terrain: Terrain;
+    palette: Palette;
+    marker: { x: number; z: number };
+    enemies: { x: number; z: number }[];
+  };
 
   constructor(
     private readonly root: HTMLElement,
@@ -117,6 +130,8 @@ export class SettingsPanel {
     for (const spec of PHYSICS_SLIDERS) tuning.append(this.slider(settings.physics, spec));
     tuning.append(this.ratio, el('h2', undefined, 'Cannon'));
     for (const spec of CANNON_SLIDERS) tuning.append(this.slider(settings.physics, spec));
+    tuning.append(el('h2', undefined, 'Enemies'));
+    for (const spec of ENEMY_SLIDERS) tuning.append(this.slider(settings.enemies, spec));
     tuning.append(el('h2', undefined, 'Thruster plume'));
     for (const spec of PLUME_SLIDERS) tuning.append(this.slider(settings.plume, spec));
     tuning.append(el('h2', undefined, 'Colours'));
@@ -138,6 +153,7 @@ export class SettingsPanel {
       Object.assign(settings.physics, DEFAULT_PHYSICS);
       Object.assign(settings.plume, DEFAULT_PLUME);
       Object.assign(settings.colours, DEFAULT_COLOURS);
+      Object.assign(settings.enemies, DEFAULT_ENEMIES);
       this.refresh();
       handlers.onChange();
     });
@@ -156,16 +172,30 @@ export class SettingsPanel {
   }
 
   /** Shows the panel. `started` switches the wording from start to resume. */
-  show(terrain: Terrain, palette: Palette, craftPos: { x: number; z: number }, started: boolean): void {
+  show(
+    terrain: Terrain,
+    palette: Palette,
+    craftPos: { x: number; z: number },
+    started: boolean,
+    enemies: readonly { pos: { x: number; z: number } }[] = [],
+  ): void {
     this.status.textContent = started ? 'PAUSED' : 'Ready for launch';
-    this.shown = { terrain, palette, marker: { x: craftPos.x, z: craftPos.z } };
+    this.shown = {
+      terrain,
+      palette,
+      marker: { x: craftPos.x, z: craftPos.z },
+      enemies: enemies.map((e) => ({ x: e.pos.x, z: e.pos.z })),
+    };
     this.drawMaps();
     this.root.classList.remove('hidden');
   }
 
   /** Redraws the minimap and thumbnails, e.g. after a colour change. */
   private drawMaps(): void {
-    if (this.shown) drawMinimap(this.minimap, this.shown.terrain, this.shown.palette, this.shown.marker);
+    if (this.shown) {
+      const { terrain, palette, marker, enemies } = this.shown;
+      drawMinimap(this.minimap, terrain, palette, marker, enemies);
+    }
     for (const { canvas, terrain, palette } of this.thumbs) drawMinimap(canvas, terrain, palette);
   }
 

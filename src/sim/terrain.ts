@@ -25,10 +25,15 @@ const mod = (a: number, n: number) => ((a % n) + n) % n;
  * Each tile is split into two triangles along the (0,0)-(1,1) diagonal;
  * `heightAt` and the renderer must agree on this split.
  *
- * Each tile can also hold one tree (see `trees.ts`), stored per tile in `trees`.
+ * Each tile can also hold one tree (see `trees.ts`), stored per tile in `trees`,
+ * and be infected by the virus (see `virus.ts`), stored per tile in `infection`.
  */
 export class Terrain {
   readonly trees: Uint8Array;
+  readonly infection: Uint8Array;
+  /** Number of infected tiles. */
+  infectedCount = 0;
+  private landTiles = -1;
 
   constructor(
     readonly size: number,
@@ -39,6 +44,44 @@ export class Terrain {
       throw new Error(`expected ${size * size} heights, got ${heights.length}`);
     }
     this.trees = new Uint8Array(size * size);
+    this.infection = new Uint8Array(size * size);
+  }
+
+  /** Wraps a world coordinate into [0, size). */
+  wrap(v: number): number {
+    return mod(v, this.size);
+  }
+
+  /** Shortest signed distance from `a` to `b` along one axis of the wrapping world. */
+  delta(a: number, b: number): number {
+    const d = mod(b - a, this.size);
+    return d > this.size / 2 ? d - this.size : d;
+  }
+
+  isInfected(i: number, j: number): boolean {
+    return this.infection[mod(j, this.size) * this.size + mod(i, this.size)] === 1;
+  }
+
+  /** Only land can catch the virus; sea and the launch pad are immune. */
+  canInfect(i: number, j: number): boolean {
+    return this.tileType(i, j) === 'land' && !this.isInfected(i, j);
+  }
+
+  /** Infects tile (i, j) if it can be infected; returns whether it was. */
+  infect(i: number, j: number): boolean {
+    if (!this.canInfect(i, j)) return false;
+    this.infection[mod(j, this.size) * this.size + mod(i, this.size)] = 1;
+    this.infectedCount++;
+    return true;
+  }
+
+  /** Share of land tiles infected, 0-1. */
+  infectedFraction(): number {
+    if (this.landTiles < 0) {
+      this.landTiles = 0;
+      for (let j = 0; j < this.size; j++) for (let i = 0; i < this.size; i++) if (this.tileType(i, j) === 'land') this.landTiles++;
+    }
+    return this.landTiles === 0 ? 0 : this.infectedCount / this.landTiles;
   }
 
   /** Builds a treeless terrain from rows of heights (row index = z), handy for tests. */

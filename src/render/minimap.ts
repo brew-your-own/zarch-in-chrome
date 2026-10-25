@@ -8,17 +8,11 @@ import type { Palette } from './palette';
 const CANOPY_SHADE = 0.75;
 
 /**
- * Draws a top-down map of the whole terrain into `canvas`: one pixel per tile,
- * scaled up without smoothing. North (-z) is up, matching the in-game camera.
- * Colours come from `palette`; land is hill-shaded and lightened with altitude.
- * `marker` (world x/z) is drawn as the craft's position, wrapped onto the map.
+ * The whole terrain as a `size` x `size` canvas, one pixel per tile, north (-z) up.
+ * Colours come from `palette` (so infection and forests show); land is hill-shaded
+ * and lightened with altitude.
  */
-export function drawMinimap(
-  canvas: HTMLCanvasElement,
-  terrain: Terrain,
-  palette: Palette,
-  marker?: { x: number; z: number },
-): void {
+export function terrainImage(terrain: Terrain, palette: Palette): HTMLCanvasElement {
   const n = terrain.size;
   const tiles = document.createElement('canvas');
   tiles.width = tiles.height = n;
@@ -47,15 +41,38 @@ export function drawMinimap(
     }
   }
   tilesCtx.putImageData(image, 0, 0);
+  return tiles;
+}
 
+/**
+ * Draws a top-down map of the whole terrain into `canvas`, scaled up without smoothing.
+ * `marker` (world x/z) is drawn as the craft's position and `enemies` as small dots,
+ * all wrapped onto the map.
+ */
+export function drawMinimap(
+  canvas: HTMLCanvasElement,
+  terrain: Terrain,
+  palette: Palette,
+  marker?: { x: number; z: number },
+  enemies: readonly { x: number; z: number }[] = [],
+): void {
+  const n = terrain.size;
   const ctx = canvas.getContext('2d')!;
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(tiles, 0, 0, canvas.width, canvas.height);
+  ctx.drawImage(terrainImage(terrain, palette), 0, 0, canvas.width, canvas.height);
+
+  const scale = canvas.width / n;
+  const toMap = (p: { x: number; z: number }) => [terrain.wrap(p.x) * scale, terrain.wrap(p.z) * scale] as const;
+  for (const e of enemies) {
+    const [x, y] = toMap(e);
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x - 3, y - 3, 6, 6);
+    ctx.fillStyle = '#e050ff';
+    ctx.fillRect(x - 2, y - 2, 4, 4);
+  }
 
   if (marker) {
-    const scale = canvas.width / n;
-    const x = (((marker.x % n) + n) % n) * scale;
-    const y = (((marker.z % n) + n) % n) * scale;
+    const [x, y] = toMap(marker);
     const r = Math.max(3, scale * 1.5);
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 3;

@@ -1,16 +1,18 @@
 import { DEFAULT_PLUME, type PlumeSettings } from './render/exhaustView';
 import { DEFAULT_COLOURS, type ColourSettings } from './render/palette';
 import { DEFAULT_PHYSICS, type Physics } from './sim/craft';
+import { DEFAULT_ENEMIES, type EnemySettings } from './sim/enemies';
 import { DEFAULT_MAP_ID, findMap } from './sim/maps';
 
 /**
  * Everything the pause panel can change. The objects are mutated in place:
- * the sim and views hold references to `physics`, `plume` and `colours`.
+ * the sim and views hold references to `physics`, `plume`, `colours` and `enemies`.
  */
 export interface Settings {
   physics: Physics;
   plume: PlumeSettings;
   colours: ColourSettings;
+  enemies: EnemySettings;
   mapId: string;
 }
 
@@ -21,6 +23,7 @@ export function defaultSettings(): Settings {
     physics: { ...DEFAULT_PHYSICS },
     plume: { ...DEFAULT_PLUME },
     colours: { ...DEFAULT_COLOURS },
+    enemies: { ...DEFAULT_ENEMIES },
     mapId: DEFAULT_MAP_ID,
   };
 }
@@ -44,6 +47,7 @@ export function loadSettings(): Settings {
     mergeNumbers(settings.physics, s.physics);
     mergeNumbers(settings.plume, s.plume);
     mergeNumbers(settings.colours, s.colours);
+    mergeNumbers(settings.enemies, s.enemies);
     if (typeof s.mapId === 'string') settings.mapId = findMap(s.mapId).id;
   } catch {
     // Corrupt or inaccessible storage: keep defaults.

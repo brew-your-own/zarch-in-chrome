@@ -191,7 +191,7 @@ export function stepCraft(
   }
 
   if (hitsTree(terrain, state.pos.x, state.pos.y, state.pos.z, CRAFT_RADIUS)) {
-    crash(state, physics);
+    crashCraft(state, physics);
     return state;
   }
 
@@ -204,7 +204,7 @@ export function stepCraft(
 
   if (state.status === 'flying' && !isSafeTouchdown(state, terrain, physics)) {
     state.pos.y = ground;
-    crash(state, physics);
+    crashCraft(state, physics);
     return state;
   }
 
@@ -219,8 +219,8 @@ export function stepCraft(
   return state;
 }
 
-/** Keeps `vel` as the impact velocity; a crashed craft no longer moves. */
-function crash(state: CraftState, physics: Physics): void {
+/** Wrecks the craft. Keeps `vel` as the impact velocity; a crashed craft no longer moves. */
+export function crashCraft(state: CraftState, physics: Physics): void {
   state.status = 'crashed';
   state.respawnIn = physics.respawnDelay;
 }
