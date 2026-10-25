@@ -1,4 +1,4 @@
-import { autopilotReady, type AutopilotState } from '../sim/autopilot';
+import { autopilotReady, type AutopilotSettings, type AutopilotState } from '../sim/autopilot';
 import type { CraftState, Physics } from '../sim/craft';
 import type { EnemySettings, EnemyState } from '../sim/enemies';
 import type { Terrain } from '../sim/terrain';
@@ -72,6 +72,7 @@ export class Hud {
     rules: EnemySettings,
     terrain: Terrain,
     autopilot: AutopilotState,
+    autopilotSettings: AutopilotSettings,
     dt: number,
   ): void {
     const fuel = Math.max(0, Math.min(1, craft.fuel / physics.maxFuel));
@@ -96,9 +97,10 @@ export class Hud {
 
     // Auto-refuel: once per wave. On the pad it isn't needed, so it reads as waiting rather than used.
     const used = autopilot.usedInWave === enemies.wave;
+    this.auto.parentElement!.hidden = !autopilotSettings.enabled;
     this.auto.textContent = autopilot.active ? 'RETURNING TO PAD'
       : used ? 'USED THIS WAVE'
-      : autopilotReady(autopilot, craft, terrain, enemies.wave) ? 'READY  [R]'
+      : autopilotReady(autopilot, craft, terrain, enemies.wave, autopilotSettings) ? 'READY  [R]'
       : 'STANDBY';
     this.auto.className = `hud-auto${autopilot.active ? ' engaged' : used ? ' spent' : ''}`;
 

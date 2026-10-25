@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { autopilotReady, createAutopilot, stepAutopilot, toggleAutopilot } from './autopilot';
+import { autopilotReady, createAutopilot, DEFAULT_AUTOPILOT as ON, stepAutopilot, toggleAutopilot } from './autopilot';
 import { CRAFT_RADIUS, DEFAULT_PHYSICS as P, spawnCraft, stepCraft, type CraftState } from './craft';
 import { buildMap, MAPS } from './maps';
 import { createRng } from './rng';
@@ -11,11 +11,11 @@ const DT = 1 / 60;
 /** Flies with the autopilot until it lets go. Returns the craft and the seconds it took. */
 function autoFly(craft: CraftState, terrain: Terrain, limit = 90) {
   const ap = createAutopilot();
-  toggleAutopilot(ap, craft, terrain, 1);
+  toggleAutopilot(ap, craft, terrain, 1, ON);
   let t = 0;
   let crashed = false;
   for (; t < limit; t += DT) {
-    const input = stepAutopilot(ap, craft, terrain, P);
+    const input = stepAutopilot(ap, craft, terrain, P, ON);
     if (!input) break;
     stepCraft(craft, input, terrain, DT, P);
     if (craft.status === 'crashed') crashed = true;
@@ -89,18 +89,36 @@ describe('autopilot', () => {
     const terrain = buildMap(MAPS[0]!);
     const craft = spawnCraft(terrain, P);
     const ap = createAutopilot();
-    expect(autopilotReady(ap, craft, terrain, 1)).toBe(false); // already on the pad
-    expect(toggleAutopilot(ap, craft, terrain, 1)).toBe(false);
+    expect(autopilotReady(ap, craft, terrain, 1, ON)).toBe(false); // already on the pad
+    expect(toggleAutopilot(ap, craft, terrain, 1, ON)).toBe(false);
 
     craft.status = 'flying';
     craft.pos.y += 3;
-    expect(toggleAutopilot(ap, craft, terrain, 1)).toBe(true);
-    expect(toggleAutopilot(ap, craft, terrain, 1)).toBe(false); // cancelled
-    expect(toggleAutopilot(ap, craft, terrain, 1)).toBe(false); // spent for wave 1
-    expect(autopilotReady(ap, craft, terrain, 2)).toBe(true);
+    expect(toggleAutopilot(ap, craft, terrain, 1, ON)).toBe(true);
+    expect(toggleAutopilot(ap, craft, terrain, 1, ON)).toBe(false); // cancelled
+    expect(toggleAutopilot(ap, craft, terrain, 1, ON)).toBe(false); // spent for wave 1
+    expect(autopilotReady(ap, craft, terrain, 2, ON)).toBe(true);
 
     craft.status = 'crashed';
-    expect(autopilotReady(ap, craft, terrain, 2)).toBe(false);
+    expect(autopilotReady(ap, craft, terrain, 2, ON)).toBe(false);
+  });
+
+  it('cannot be used when switched off, and lets go if switched off in flight', () => {
+    const terrain = buildMap(MAPS[0]!);
+    const craft = spawnCraft(terrain, P);
+    craft.status = 'flying';
+    craft.pos.y += 3;
+    const ap = createAutopilot();
+    const settings = { enabled: false };
+    expect(autopilotReady(ap, craft, terrain, 1, settings)).toBe(false);
+    expect(toggleAutopilot(ap, craft, terrain, 1, settings)).toBe(false);
+    expect(ap.usedInWave).toBe(-1);
+
+    settings.enabled = true;
+    expect(toggleAutopilot(ap, craft, terrain, 1, settings)).toBe(true);
+    settings.enabled = false;
+    expect(stepAutopilot(ap, craft, terrain, P, settings)).toBeNull();
+    expect(ap.active).toBe(false);
   });
 
   it('lets go when the craft crashes', () => {
@@ -109,10 +127,10 @@ describe('autopilot', () => {
     craft.status = 'flying';
     craft.pos.y += 3;
     const ap = createAutopilot();
-    toggleAutopilot(ap, craft, terrain, 1);
-    expect(stepAutopilot(ap, craft, terrain, P)).not.toBeNull();
+    toggleAutopilot(ap, craft, terrain, 1, ON);
+    expect(stepAutopilot(ap, craft, terrain, P, ON)).not.toBeNull();
     craft.status = 'crashed';
-    expect(stepAutopilot(ap, craft, terrain, P)).toBeNull();
+    expect(stepAutopilot(ap, craft, terrain, P, ON)).toBeNull();
     expect(ap.active).toBe(false);
   });
 });

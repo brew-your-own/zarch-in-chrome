@@ -2,6 +2,7 @@ import { DEFAULT_SOUND } from '../audio/sound';
 import { drawMinimap } from '../render/minimap';
 import { COLOUR_PRESETS, DEFAULT_COLOURS, Palette } from '../render/palette';
 import { DEFAULT_PLUME } from '../render/exhaustView';
+import { DEFAULT_AUTOPILOT } from '../sim/autopilot';
 import { DEFAULT_PHYSICS } from '../sim/craft';
 import { DEFAULT_ENEMIES } from '../sim/enemies';
 import { buildMap, MAPS } from '../sim/maps';
@@ -138,6 +139,8 @@ export class SettingsPanel {
     for (const spec of CANNON_SLIDERS) tuning.append(this.slider(settings.physics, spec));
     tuning.append(el('h2', undefined, 'Enemies'));
     for (const spec of ENEMY_SLIDERS) tuning.append(this.slider(settings.enemies, spec));
+    tuning.append(el('h2', undefined, 'Assists'));
+    tuning.append(this.toggle(settings.autopilot, 'enabled', 'Auto-refuel [R]', 'Once per wave, flies you back to the pad and lands.'));
     tuning.append(el('h2', undefined, 'Thruster plume'));
     for (const spec of PLUME_SLIDERS) tuning.append(this.slider(settings.plume, spec));
     tuning.append(el('h2', undefined, 'Colours'));
@@ -162,6 +165,7 @@ export class SettingsPanel {
       Object.assign(settings.plume, DEFAULT_PLUME);
       Object.assign(settings.colours, DEFAULT_COLOURS);
       Object.assign(settings.enemies, DEFAULT_ENEMIES);
+      Object.assign(settings.autopilot, DEFAULT_AUTOPILOT);
       Object.assign(settings.sound, DEFAULT_SOUND);
       this.refresh();
       handlers.onChange();
@@ -173,7 +177,7 @@ export class SettingsPanel {
     panel.append(
       header,
       columns,
-      el('p', 'help', 'Move mouse: tilt craft · Left button: thrust · Right button: fire · Esc: pause'),
+      el('p', 'help', 'Move mouse: tilt craft · Left button: thrust · Right button: fire · R: auto-refuel · Esc: pause'),
     );
     root.append(panel);
     this.highlightMap();
@@ -227,6 +231,21 @@ export class SettingsPanel {
     const twr = this.settings.physics.thrust / this.settings.physics.gravity;
     this.ratio.textContent = `Thrust-to-weight ${twr.toFixed(2)}${twr <= 1 ? ' (cannot take off!)' : ''}`;
     this.ratio.classList.toggle('warn', twr <= 1);
+  }
+
+  /** A checkbox bound to a boolean setting, with a short explanation beside it. */
+  private toggle<T extends object>(target: T, key: keyof T & string, label: string, hint: string): HTMLElement {
+    const row = el('label', 'toggle');
+    const input = el('input');
+    input.type = 'checkbox';
+    input.addEventListener('change', () => {
+      (target[key] as boolean) = input.checked;
+      this.refresh();
+      this.handlers.onChange();
+    });
+    this.refreshers.push(() => (input.checked = target[key] as boolean));
+    row.append(input, el('span', 'name', label), el('span', 'hint', hint));
+    return row;
   }
 
   private slider<T extends object>(target: T, spec: SliderSpec<T>): HTMLElement {

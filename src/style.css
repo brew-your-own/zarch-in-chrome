@@ -94,6 +94,10 @@ html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
 .slider { display: grid; grid-template-columns: 140px 1fr 80px; align-items: center; gap: 10px; margin: 4px 0; }
 .slider input { width: 100%; accent-color: var(--accent); }
 .slider .value { text-align: right; color: var(--accent); }
+.toggle { display: flex; align-items: baseline; gap: 10px; margin: 4px 0; cursor: pointer; }
+.toggle input { accent-color: var(--accent); }
+.toggle .name { white-space: nowrap; }
+.toggle .hint { color: var(--muted); }
 
 .note { margin: 6px 0 0; color: var(--muted); }
 .note.warn { color: var(--warn); }

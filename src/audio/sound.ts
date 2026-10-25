@@ -95,6 +95,25 @@ export class SoundEngine {
     click.stop(t + 0.04);
   }
 
+  /** Autopilot engaged: two rising chimes, like a cockpit announcement. */
+  autopilot(): void {
+    const { ctx, master } = this;
+    if (!ctx || !master) return;
+    const t = ctx.currentTime;
+    for (const [delay, freq] of [[0, 660], [0.13, 990]] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, t + delay);
+      gain.gain.exponentialRampToValueAtTime(0.22, t + delay + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + delay + 0.32);
+      osc.connect(gain).connect(master);
+      osc.start(t + delay);
+      osc.stop(t + delay + 0.33);
+    }
+  }
+
   /** An explosion `distance` tiles from the craft. */
   explosion(kind: ExplosionKind, distance = 0): void {
     const { ctx, master, noise } = this;

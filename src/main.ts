@@ -182,7 +182,8 @@ showPanel();
 // R engages auto-refuel (once per wave), or hands control back if it is flying.
 document.addEventListener('keydown', (e) => {
   if (e.code !== 'KeyR' || e.repeat || !input.locked || gameOver) return;
-  toggleAutopilot(autopilot, craft, terrain, enemies.wave);
+  const wasActive = autopilot.active;
+  if (toggleAutopilot(autopilot, craft, terrain, enemies.wave, settings.autopilot) && !wasActive) sound.autopilot();
 });
 
 // Dev-only handle for poking at the game from the console or browser automation.
@@ -242,7 +243,7 @@ function frame(now: number) {
       const wasCrashed = craft.status === 'crashed';
       simTime += STEP;
       const wasAuto = autopilot.active;
-      const auto = stepAutopilot(autopilot, craft, terrain, physics);
+      const auto = stepAutopilot(autopilot, craft, terrain, physics, settings.autopilot);
       if (auto) {
         // Keep the mouse aim with the autopilot's, so taking back control doesn't jolt the craft.
         input.aimX = auto.aimX;
@@ -298,7 +299,7 @@ function frame(now: number) {
   effectsView.update(effectsDt, physics.gravity);
   renderer.render(scene, camera);
 
-  hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, effectsDt);
+  hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, settings.autopilot, effectsDt);
   playSounds();
   scanner.update(terrain, palette, craft, enemies, elapsed);
 

@@ -12,6 +12,14 @@ export interface AutopilotState {
   usedInWave: number;
 }
 
+/** Settings panel switch. */
+export interface AutopilotSettings {
+  /** Whether auto-refuel can be used at all. */
+  enabled: boolean;
+}
+
+export const DEFAULT_AUTOPILOT: Readonly<AutopilotSettings> = Object.freeze({ enabled: true });
+
 /** Top cruise speed towards the pad (units/s). */
 const CRUISE_SPEED = 4;
 /** Height kept above the highest ground or treetop on the way. */
@@ -34,9 +42,15 @@ export function createAutopilot(): AutopilotState {
   return { active: false, usedInWave: -1 };
 }
 
-/** Whether the autopilot can be engaged now: not yet used this wave, and the craft needs it. */
-export function autopilotReady(ap: AutopilotState, craft: CraftState, terrain: Terrain, wave: number): boolean {
-  if (ap.active || ap.usedInWave === wave || craft.status === 'crashed') return false;
+/** Whether the autopilot can be engaged now: switched on, not yet used this wave, and the craft needs it. */
+export function autopilotReady(
+  ap: AutopilotState,
+  craft: CraftState,
+  terrain: Terrain,
+  wave: number,
+  settings: AutopilotSettings,
+): boolean {
+  if (!settings.enabled || ap.active || ap.usedInWave === wave || craft.status === 'crashed') return false;
   return !(craft.status === 'landed' && terrain.tileTypeAt(craft.pos.x, craft.pos.z) === 'pad');
 }
 
@@ -44,10 +58,16 @@ export function autopilotReady(ap: AutopilotState, craft: CraftState, terrain: T
  * Engages the autopilot if it is ready, or cancels it if it is flying (the wave's use is spent
  * either way). Returns whether it is now engaged.
  */
-export function toggleAutopilot(ap: AutopilotState, craft: CraftState, terrain: Terrain, wave: number): boolean {
+export function toggleAutopilot(
+  ap: AutopilotState,
+  craft: CraftState,
+  terrain: Terrain,
+  wave: number,
+  settings: AutopilotSettings,
+): boolean {
   if (ap.active) {
     ap.active = false;
-  } else if (autopilotReady(ap, craft, terrain, wave)) {
+  } else if (autopilotReady(ap, craft, terrain, wave, settings)) {
     ap.active = true;
     ap.usedInWave = wave;
   }
@@ -56,12 +76,19 @@ export function toggleAutopilot(ap: AutopilotState, craft: CraftState, terrain: 
 
 /**
  * The input for this step while the autopilot is engaged, or null when it isn't. It
- * disengages once the craft has landed on the pad (where it refuels) or has crashed.
+ * disengages once the craft has landed on the pad (where it refuels), has crashed, or
+ * the feature has been switched off.
  */
-export function stepAutopilot(ap: AutopilotState, craft: CraftState, terrain: Terrain, physics: Physics): CraftInput | null {
+export function stepAutopilot(
+  ap: AutopilotState,
+  craft: CraftState,
+  terrain: Terrain,
+  physics: Physics,
+  settings: AutopilotSettings,
+): CraftInput | null {
   if (!ap.active) return null;
   const onPad = terrain.tileTypeAt(craft.pos.x, craft.pos.z) === 'pad';
-  if (craft.status === 'crashed' || (craft.status === 'landed' && onPad)) {
+  if (!settings.enabled || craft.status === 'crashed' || (craft.status === 'landed' && onPad)) {
     ap.active = false;
     return null;
   }
