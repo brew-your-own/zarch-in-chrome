@@ -50,6 +50,11 @@ const ENEMY_SLIDERS: SliderSpec<Settings['enemies']>[] = [
   { key: 'fighterSpeed', label: 'Fighter speed', min: 1, max: 10, step: 0.1, unit: 'u/s' },
   { key: 'fighterFireInterval', label: 'Fighter fire interval', min: 0.5, max: 6, step: 0.1, unit: 's' },
   { key: 'fighterAccuracy', label: 'Fighter accuracy', min: 0, max: 100, step: 5, unit: '%', scale: 100 },
+  { key: 'mutateAfter', label: 'Seeders mutate after', min: 0, max: 120, step: 5, unit: 's' },
+  { key: 'mutantSpeed', label: 'Mutant speed', min: 1, max: 10, step: 0.1, unit: 'u/s' },
+  { key: 'bombers', label: 'Bombers per wave', min: 0, max: 3, step: 1 },
+  { key: 'bombersFromWave', label: 'Bombers from wave', min: 1, max: 10, step: 1 },
+  { key: 'bomberSpeed', label: 'Bomber speed', min: 0.5, max: 8, step: 0.1, unit: 'u/s' },
 ];
 
 const GAME_SLIDERS: SliderSpec<Settings['enemies']>[] = [
@@ -183,6 +188,7 @@ export class SettingsPanel {
     tuning.append(el('p', 'note', 'Lives apply from the next game. Each wave after the first is harder by the ramp, up to the cap.'));
     tuning.append(el('h2', undefined, 'Enemies'));
     for (const spec of ENEMY_SLIDERS) tuning.append(this.slider(settings.enemies, spec));
+    tuning.append(el('p', 'note', 'A seeder left alive too long mutates and dives at you (0 turns it off). Bombers lay the virus in lines and take three hits.'));
     tuning.append(el('h2', undefined, 'Weapons'));
     for (const spec of WEAPON_SLIDERS) tuning.append(this.slider(settings.weapons, spec));
     tuning.append(el('p', 'note', 'Smart bombs are handed out each wave and don\'t carry over; missiles build up (up to 9). New stock amounts apply from the next wave.'));

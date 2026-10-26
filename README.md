@@ -22,6 +22,13 @@ The title screen plays the game by itself: a computer pilot defends the word ZAR
 
 Land gently on the grey launch pad to refuel. The pad is also a safe haven: fighters hold fire while you sit on it.
 
+The enemies:
+
+- **Seeders** wander the map dropping spores that infect the land.
+- **Mutants:** a seeder left alive for 40 seconds mutates. It keeps spreading the virus, and it hunts you too, diving at you from above. Keep moving and it misses.
+- **Fighters** join from wave 2. They circle you and shoot.
+- **Bombers** join from wave 3. They fly straight across the map, laying the virus in long lines, and take three hits to bring down.
+
 Each wave is a little harder than the last: enemies move and shoot faster and aim better, up to a cap.
 
 The settings panel, opened from the title screen or by pausing, has the map picker and lets you tune physics, enemies, difficulty, weapons, lives, colours, sound and music. Settings are saved in your browser.

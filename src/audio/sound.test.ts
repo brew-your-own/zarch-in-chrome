@@ -45,6 +45,8 @@ describe('sound helpers', () => {
       engine.bomb();
       engine.missile();
       engine.enemyShot(3);
+      engine.mutation(3);
+      engine.clank(3);
       engine.music(0.5, false, 1 / 60);
       engine.update();
     }).not.toThrow();

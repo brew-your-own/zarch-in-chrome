@@ -1,7 +1,7 @@
 import { autopilotReady, type AutopilotSettings, type AutopilotState } from '../sim/autopilot';
 import type { CraftState, Physics } from '../sim/craft';
 import type { Arsenal } from '../sim/weapons';
-import type { EnemySettings, EnemyState } from '../sim/enemies';
+import { enemyCount, type EnemySettings, type EnemyState } from '../sim/enemies';
 import type { Terrain } from '../sim/terrain';
 
 /** Fuel share below which the bar turns red and warns. */
@@ -98,7 +98,7 @@ export class Hud {
     const ground = terrain.heightAt(craft.pos.x, craft.pos.z);
     const speed = craft.status === 'crashed' ? 0 : Math.hypot(craft.vel.x, craft.vel.y, craft.vel.z);
     this.flight.textContent = `ALT ${(craft.pos.y - ground).toFixed(1).padStart(5)}   SPEED ${speed.toFixed(1).padStart(4)}`;
-    this.game.textContent = `SCORE ${enemies.score}   WAVE ${enemies.wave} (${enemies.seeders.length + enemies.fighters.length} left)`;
+    this.game.textContent = `SCORE ${enemies.score}   WAVE ${enemies.wave} (${enemyCount(enemies)} left)`;
     // One marker per craft left; the flying one counts until it is wrecked.
     this.lives.textContent = '▲ '.repeat(Math.max(0, lives)).trim() || '—';
     this.lives.classList.toggle('alert', lives <= 1);

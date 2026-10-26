@@ -82,7 +82,7 @@ describe('demo pilot', () => {
 describe('wouldHit', () => {
   const terrain = Terrain.fromRows(Array.from({ length: 32 }, () => Array<number>(32).fill(0.5)), { i: 15, j: 15, w: 3, h: 3 });
   const craft = (): CraftState => ({ ...spawnCraft(terrain), pos: { x: 16, y: 3, z: 16 }, status: 'flying', heading: 0 });
-  const seeder = (x: number, y: number, z: number): Seeder => ({ id: 1, pos: { x, y, z }, vel: { x: 0, y: 0, z: 0 }, target: { x, z }, dropIn: 1 });
+  const seeder = (x: number, y: number, z: number): Seeder => ({ id: 1, pos: { x, y, z }, vel: { x: 0, y: 0, z: 0 }, target: { x, z }, dropIn: 1, age: 0 });
 
   it('is true for a seeder dead ahead of a level nose', () => {
     expect(wouldHit(craft(), seeder(16, 3, 11), terrain, DEFAULT_PHYSICS)).toBe(true);

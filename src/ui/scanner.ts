@@ -10,7 +10,7 @@ const TERRAIN_REFRESH = 0.5;
 /**
  * Live map in a corner of the screen: the whole wrapping world centred on the craft,
  * north up like the camera. The terrain layer is cached and refreshed periodically;
- * the craft, pad, seeders and fighters are redrawn every frame.
+ * the craft, pad and enemies are redrawn every frame.
  */
 export class Scanner {
   private readonly ctx: CanvasRenderingContext2D;
@@ -82,6 +82,37 @@ export class Scanner {
       ctx.fillRect(x - 3, y - 3, 6, 6);
       ctx.fillStyle = '#e050ff';
       ctx.fillRect(x - 2, y - 2, 4, 4);
+    }
+
+    // Mutants: acid green squares, blinking.
+    if (Math.floor(performance.now() / 200) % 2 === 0) {
+      for (const m of enemies.mutants) {
+        const [x, y] = toScreen(m.pos.x, m.pos.z);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(x - 3, y - 3, 6, 6);
+        ctx.fillStyle = '#70ff30';
+        ctx.fillRect(x - 2, y - 2, 4, 4);
+      }
+    }
+
+    // Bombers: wide olive chevrons along their heading.
+    for (const b of enemies.bombers) {
+      const [x, y] = toScreen(b.pos.x, b.pos.z);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(b.heading);
+      ctx.beginPath();
+      ctx.moveTo(0, -4);
+      ctx.lineTo(7, 4);
+      ctx.lineTo(0, 1);
+      ctx.lineTo(-7, 4);
+      ctx.closePath();
+      ctx.fillStyle = '#c8d860';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fill();
+      ctx.restore();
     }
 
     // Fighters: small red darts along their heading.

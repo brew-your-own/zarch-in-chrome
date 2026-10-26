@@ -33,7 +33,7 @@ export interface DemoCommand {
   mode: DemoMode;
 }
 
-/** Enemies on the title screen: fewer, slower seeders, no fighters, a quicker virus. */
+/** Enemies on the title screen: fewer, slower seeders that never mutate, no fighters or bombers, a quicker virus. */
 export const DEMO_ENEMIES: Readonly<EnemySettings> = Object.freeze({
   ...DEFAULT_ENEMIES,
   firstWave: 2,
@@ -41,6 +41,8 @@ export const DEMO_ENEMIES: Readonly<EnemySettings> = Object.freeze({
   sporeInterval: 1.2,
   virusSpread: 0.05,
   fighters: 0,
+  mutateAfter: 0,
+  bombers: 0,
   difficultyRamp: 0.15,
 });
 

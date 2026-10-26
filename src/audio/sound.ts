@@ -40,7 +40,7 @@ export function attenuation(distance: number): number {
 }
 
 /** How big each kind of explosion sounds. */
-export const EXPLOSION_SIZE = { craft: 1, fighter: 0.8, seeder: 0.7, tree: 0.35 } as const;
+export const EXPLOSION_SIZE = { craft: 1, bomber: 0.9, fighter: 0.8, mutant: 0.75, seeder: 0.7, tree: 0.35 } as const;
 export type ExplosionKind = keyof typeof EXPLOSION_SIZE;
 
 /** Shape of an explosion of `size` (0-1): louder, longer and deeper as it grows. */
@@ -249,6 +249,59 @@ export class SoundEngine {
     osc.connect(lp).connect(gain).connect(master);
     osc.start(t);
     osc.stop(t + 0.19);
+  }
+
+  /** A seeder mutating, `distance` tiles away: a warbling, rising squeal. */
+  mutation(distance: number): void {
+    const { ctx, master } = this;
+    if (!ctx || !master) return;
+    const t = ctx.currentTime;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.14 * attenuation(distance), t + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 2400;
+    lp.connect(gain).connect(master);
+    const warble = ctx.createOscillator();
+    warble.frequency.value = 18;
+    const depth = ctx.createGain();
+    depth.gain.value = 40;
+    warble.connect(depth);
+    for (const detune of [-12, 12]) {
+      const osc = ctx.createOscillator();
+      osc.type = 'square';
+      osc.detune.value = detune;
+      osc.frequency.setValueAtTime(140, t);
+      osc.frequency.exponentialRampToValueAtTime(880, t + 0.6);
+      depth.connect(osc.frequency);
+      osc.connect(lp);
+      osc.start(t);
+      osc.stop(t + 0.72);
+    }
+    warble.start(t);
+    warble.stop(t + 0.72);
+  }
+
+  /** A bullet glancing off a bomber, `distance` tiles away: a short metallic clank. */
+  clank(distance: number): void {
+    const { ctx, master } = this;
+    if (!ctx || !master) return;
+    const t = ctx.currentTime;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.18 * attenuation(distance), t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    gain.connect(master);
+    // Two inharmonic partials ring like struck metal.
+    for (const freq of [620, 1470]) {
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      osc.connect(gain);
+      osc.start(t);
+      osc.stop(t + 0.26);
+    }
   }
 
   /** An explosion `distance` tiles from the craft. */

@@ -1,6 +1,5 @@
 import { noseDirection, type CraftState, type Physics, type Vec3 } from './craft';
-import { SEEDER_POINTS, SEEDER_RADIUS, type EnemyEvent, type EnemyState } from './enemies';
-import { FIGHTER_POINTS, FIGHTER_RADIUS } from './fighters';
+import { killEnemy, targets, type EnemyEvent, type EnemyState } from './enemies';
 import type { Terrain } from './terrain';
 import { hitsTree } from './trees';
 
@@ -70,8 +69,8 @@ export function restock(arsenal: Arsenal, wave: number, settings: WeaponSettings
 }
 
 /**
- * Sets off a smart bomb if one is in stock and the craft is flying or landed: every seeder,
- * fighter, spore and enemy shot within `bombRadius` of the craft is destroyed, and the kills
+ * Sets off a smart bomb if one is in stock and the craft is flying or landed: every enemy,
+ * spore and enemy shot within `bombRadius` of the craft is destroyed, and the kills
  * are scored. Returns what happened, or null if no bomb went off.
  */
 export function detonateBomb(
@@ -86,28 +85,17 @@ export function detonateBomb(
   const r = settings.bombRadius;
   const inRange = (p: { x: number; z: number }) => Math.hypot(terrain.delta(craft.pos.x, p.x), terrain.delta(craft.pos.z, p.z)) <= r;
   const events: (EnemyEvent | WeaponEvent)[] = [{ type: 'bombDetonated', pos: { ...craft.pos }, radius: r }];
-  enemies.seeders = enemies.seeders.filter((s) => {
-    if (!inRange(s.pos)) return true;
-    enemies.score += SEEDER_POINTS;
-    events.push({ type: 'seederDestroyed', seeder: s, byBullet: true });
-    return false;
-  });
-  enemies.fighters = enemies.fighters.filter((f) => {
-    if (!inRange(f.pos)) return true;
-    enemies.score += FIGHTER_POINTS;
-    events.push({ type: 'fighterDestroyed', fighter: f, byBullet: true });
-    return false;
-  });
+  for (const t of targets(enemies)) if (inRange(t.pos)) events.push(killEnemy(enemies, t.id, true)!);
   enemies.spores = enemies.spores.filter((s) => !inRange(s.pos));
   enemies.shots = enemies.shots.filter((s) => !inRange(s.pos));
   return events;
 }
 
-/** The nearest seeder or fighter to `pos` within `MISSILE_RANGE`, fighters' ids and seeders' ids alike. */
+/** Id of the nearest enemy of any kind to `pos` within `MISSILE_RANGE`. */
 function nearestTarget(enemies: EnemyState, pos: Vec3, terrain: Terrain): number | null {
   let best: number | null = null;
   let bestDistance = MISSILE_RANGE;
-  for (const e of [...enemies.fighters, ...enemies.seeders]) {
+  for (const e of targets(enemies)) {
     const d = Math.hypot(terrain.delta(pos.x, e.pos.x), terrain.delta(pos.z, e.pos.z));
     if (d < bestDistance) {
       bestDistance = d;
@@ -165,8 +153,7 @@ export function stepMissiles(
   const events: (EnemyEvent | WeaponEvent)[] = [];
   arsenal.inFlight = arsenal.inFlight.filter((m) => {
     m.age += dt;
-    const find = (id: number | null) =>
-      id === null ? undefined : enemies.fighters.find((f) => f.id === id) ?? enemies.seeders.find((s) => s.id === id);
+    const find = (id: number | null) => (id === null ? undefined : targets(enemies).find((e) => e.id === id));
     let target = find(m.target);
     if (!target) {
       m.target = nearestTarget(enemies, m.pos, terrain);
@@ -220,24 +207,13 @@ export function stepMissiles(
   return events;
 }
 
-/** Destroys and scores the first enemy `pos` touches. */
+/** Destroys and scores the first enemy `pos` touches. A missile kills a bomber outright. */
 function hitEnemy(pos: Vec3, enemies: EnemyState, terrain: Terrain): EnemyEvent | null {
-  const touches = (p: Vec3, radius: number) => {
-    const dx = terrain.delta(p.x, pos.x);
-    const dz = terrain.delta(p.z, pos.z);
-    return dx * dx + dz * dz < (radius + MISSILE_HIT) ** 2 && Math.abs(p.y - pos.y) < radius + MISSILE_HIT;
-  };
-  const f = enemies.fighters.findIndex((e) => touches(e.pos, FIGHTER_RADIUS));
-  if (f >= 0) {
-    const [fighter] = enemies.fighters.splice(f, 1);
-    enemies.score += FIGHTER_POINTS;
-    return { type: 'fighterDestroyed', fighter: fighter!, byBullet: true };
-  }
-  const s = enemies.seeders.findIndex((e) => touches(e.pos, SEEDER_RADIUS));
-  if (s >= 0) {
-    const [seeder] = enemies.seeders.splice(s, 1);
-    enemies.score += SEEDER_POINTS;
-    return { type: 'seederDestroyed', seeder: seeder!, byBullet: true };
-  }
-  return null;
+  const hit = targets(enemies).find((e) => {
+    const dx = terrain.delta(e.pos.x, pos.x);
+    const dz = terrain.delta(e.pos.z, pos.z);
+    const reach = e.radius + MISSILE_HIT;
+    return dx * dx + dz * dz < reach * reach && Math.abs(e.pos.y - pos.y) < reach;
+  });
+  return hit ? killEnemy(enemies, hit.id, true) : null;
 }

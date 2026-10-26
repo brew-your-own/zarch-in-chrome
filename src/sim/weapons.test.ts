@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_PHYSICS as P, spawnCraft, type CraftState } from './craft';
 import { createEnemies, DEFAULT_ENEMIES, SEEDER_POINTS, stepEnemies, waveSettings, type EnemyState } from './enemies';
+import { BOMBER_POINTS, spawnBomber } from './bombers';
 import { FIGHTER_POINTS, spawnFighter } from './fighters';
+import { MUTANT_POINTS, mutate } from './mutants';
 import { Terrain } from './terrain';
 import { createArsenal, DEFAULT_WEAPONS as W, detonateBomb, fireMissile, MAX_MISSILES, restock, stepMissiles } from './weapons';
 
@@ -89,6 +91,19 @@ describe('smart bombs', () => {
     expect(a.bombs).toBe(0);
     expect(detonateBomb(a, craft, enemies, t, W)).toBeNull(); // none left
   });
+
+  it('clear mutants and bombers too', () => {
+    const t = world();
+    const craft = hovering(t);
+    const enemies = enemiesAt(t, [], []);
+    enemies.mutants.push(mutate(enemies.nextId++, { x: 13, y: 5, z: 9 }, { x: 0, y: 0, z: 0 }, enemies.rng));
+    enemies.bombers.push(spawnBomber(enemies.nextId++, 8, 14, t, enemies.rng));
+    const a = createArsenal();
+    a.bombs = 1;
+    const events = detonateBomb(a, craft, enemies, t, W)!;
+    expect(events.map((e) => e.type)).toEqual(['bombDetonated', 'mutantDestroyed', 'bomberDestroyed']);
+    expect(enemies.score).toBe(MUTANT_POINTS + BOMBER_POINTS);
+  });
 });
 
 describe('homing missiles', () => {
@@ -126,6 +141,23 @@ describe('homing missiles', () => {
     expect(hit).toBe(true);
     expect(enemies.fighters).toHaveLength(0);
     expect(enemies.score).toBe(FIGHTER_POINTS);
+  });
+
+  it('bring a bomber down in one hit', () => {
+    const t = world();
+    const craft = hovering(t);
+    const enemies = enemiesAt(t, [], []);
+    enemies.bombers.push(spawnBomber(enemies.nextId++, 16, 6, t, enemies.rng));
+    const a = createArsenal();
+    a.missiles = 1;
+    expect(fireMissile(a, craft, enemies, t, P)).not.toBeNull();
+    let hit = false;
+    for (let time = 0; time < 6 && !hit; time += DT) {
+      stepEnemies(enemies, craft, [], t, DT, DEFAULT_ENEMIES, P);
+      hit = stepMissiles(a, enemies, t, DT, W).some((e) => e.type === 'bomberDestroyed');
+    }
+    expect(hit).toBe(true);
+    expect(enemies.score).toBe(BOMBER_POINTS);
   });
 
   it('go for another enemy if their target is destroyed first', () => {

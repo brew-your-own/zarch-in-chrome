@@ -1,6 +1,8 @@
 import { crashCraft, CRAFT_RADIUS, type CraftState, type Physics, type Vec3 } from './craft';
+import { BOMBER_POINTS, BOMBER_RADIUS, flyBomber, spawnBomber, type Bomber } from './bombers';
 import type { Bullet } from './cannon';
 import { FIGHTER_POINTS, FIGHTER_RADIUS, flyFighter, moveShot, spawnFighter, type EnemyShot, type Fighter } from './fighters';
+import { flyMutant, mutate, MUTANT_POINTS, MUTANT_RADIUS, type Mutant } from './mutants';
 import { createRng } from './rng';
 import type { Terrain } from './terrain';
 import { stepVirus } from './virus';
@@ -25,6 +27,15 @@ export interface EnemySettings {
   fighterFireInterval: number;
   /** 0-1: how well fighters aim (spread, and how far they lead a moving craft). */
   fighterAccuracy: number;
+  /** Seconds a seeder lives before it mutates into a mutant, which hunts the craft. 0 means never. */
+  mutateAfter: number;
+  /** Mutant top speed (units/s); it dives faster than this. */
+  mutantSpeed: number;
+  /** Bombers in each wave from `bombersFromWave` on. 0 means none. */
+  bombers: number;
+  bombersFromWave: number;
+  /** Bomber speed (units/s). */
+  bomberSpeed: number;
   /** Craft per game; losing the last one ends it. */
   lives: number;
   /** How much harder each wave after the first gets (0.1 = 10% per wave). See `waveSettings`. */
@@ -43,6 +54,11 @@ export const DEFAULT_ENEMIES: Readonly<EnemySettings> = Object.freeze({
   fighterSpeed: 4.5,
   fighterFireInterval: 2.5,
   fighterAccuracy: 0.35,
+  mutateAfter: 40,
+  mutantSpeed: 4.5,
+  bombers: 1,
+  bombersFromWave: 3,
+  bomberSpeed: 2.5,
   lives: 3,
   difficultyRamp: 0.12,
   difficultyCap: 2.5,
@@ -53,9 +69,9 @@ const MAX_RAMPED_ACCURACY = 0.85;
 
 /**
  * The enemy settings in force during `wave`. Each wave after the first multiplies the
- * difficulty by `1 + difficultyRamp × (wave − 1)`, capped at `difficultyCap`: spores drop and
- * fighters fire that much more often, enemies fly faster by half that, and fighters aim
- * better. Virus spread, wave sizes and the game rules are not ramped.
+ * difficulty by `1 + difficultyRamp × (wave − 1)`, capped at `difficultyCap`: spores drop,
+ * fighters fire and seeders mutate that much sooner, enemies fly faster by half that, and
+ * fighters aim better. Virus spread, wave sizes and the game rules are not ramped.
  */
 export function waveSettings(settings: EnemySettings, wave: number): EnemySettings {
   const f = Math.max(1, Math.min(Math.max(1, settings.difficultyCap), 1 + Math.max(0, settings.difficultyRamp) * (wave - 1)));
@@ -65,6 +81,9 @@ export function waveSettings(settings: EnemySettings, wave: number): EnemySettin
     seederSpeed: settings.seederSpeed * speed,
     sporeInterval: settings.sporeInterval / f,
     fighterSpeed: settings.fighterSpeed * speed,
+    mutateAfter: settings.mutateAfter / f,
+    mutantSpeed: settings.mutantSpeed * speed,
+    bomberSpeed: settings.bomberSpeed * speed,
     fighterFireInterval: settings.fighterFireInterval / f,
     fighterAccuracy: Math.min(Math.max(settings.fighterAccuracy, MAX_RAMPED_ACCURACY), settings.fighterAccuracy + (f - 1) * 0.25),
   };
@@ -75,10 +94,67 @@ export function isOverrun(terrain: Terrain, settings: EnemySettings): boolean {
   return terrain.infectedFraction() >= settings.overrunAt;
 }
 
-/** Horizontal distance (wrapped) from `pos` to the nearest seeder or fighter, or Infinity if there is none. */
+/** An enemy of any kind, as weapons and the scanner see it. */
+export interface Target {
+  id: number;
+  pos: Vec3;
+  /** Collision radius (bullets, missiles and the craft). */
+  radius: number;
+}
+
+/** Every enemy alive, of every kind. */
+export function targets(enemies: EnemyState): Target[] {
+  return [
+    ...enemies.fighters.map((e) => ({ id: e.id, pos: e.pos, radius: FIGHTER_RADIUS })),
+    ...enemies.mutants.map((e) => ({ id: e.id, pos: e.pos, radius: MUTANT_RADIUS })),
+    ...enemies.bombers.map((e) => ({ id: e.id, pos: e.pos, radius: BOMBER_RADIUS })),
+    ...enemies.seeders.map((e) => ({ id: e.id, pos: e.pos, radius: SEEDER_RADIUS })),
+  ];
+}
+
+export function enemyCount(enemies: EnemyState): number {
+  return enemies.seeders.length + enemies.fighters.length + enemies.mutants.length + enemies.bombers.length;
+}
+
+/**
+ * Removes the enemy with this `id`, whatever its kind, and returns its event. Kills by a
+ * bullet, missile or bomb (`byBullet`) score; ramming the craft doesn't.
+ */
+export function killEnemy(enemies: EnemyState, id: number, byBullet: boolean): EnemyEvent | null {
+  const take = <T extends { id: number }>(list: T[]) => {
+    const k = list.findIndex((e) => e.id === id);
+    return k < 0 ? undefined : list.splice(k, 1)[0];
+  };
+  const score = (points: number) => {
+    if (byBullet) enemies.score += points;
+  };
+  const seeder = take(enemies.seeders);
+  if (seeder) {
+    score(SEEDER_POINTS);
+    return { type: 'seederDestroyed', seeder, byBullet };
+  }
+  const fighter = take(enemies.fighters);
+  if (fighter) {
+    score(FIGHTER_POINTS);
+    return { type: 'fighterDestroyed', fighter, byBullet };
+  }
+  const mutant = take(enemies.mutants);
+  if (mutant) {
+    score(MUTANT_POINTS);
+    return { type: 'mutantDestroyed', mutant, byBullet };
+  }
+  const bomber = take(enemies.bombers);
+  if (bomber) {
+    score(BOMBER_POINTS);
+    return { type: 'bomberDestroyed', bomber, byBullet };
+  }
+  return null;
+}
+
+/** Horizontal distance (wrapped) from `pos` to the nearest enemy, or Infinity if there is none. */
 export function nearestEnemyDistance(enemies: EnemyState, pos: { x: number; z: number }, terrain: Terrain): number {
   let nearest = Infinity;
-  for (const s of [...enemies.seeders, ...enemies.fighters]) {
+  for (const s of targets(enemies)) {
     nearest = Math.min(nearest, Math.hypot(terrain.delta(pos.x, s.pos.x), terrain.delta(pos.z, s.pos.z)));
   }
   return nearest;
@@ -105,6 +181,8 @@ export interface Seeder {
   vel: Vec3;
   target: { x: number; z: number };
   dropIn: number;
+  /** Seconds alive; it mutates at `mutateAfter`. */
+  age: number;
 }
 
 export interface Spore {
@@ -116,6 +194,8 @@ export interface EnemyState {
   seeders: Seeder[];
   spores: Spore[];
   fighters: Fighter[];
+  mutants: Mutant[];
+  bombers: Bomber[];
   /** Fighters' shots in flight. */
   shots: EnemyShot[];
   wave: number;
@@ -129,6 +209,12 @@ export interface EnemyState {
 export type EnemyEvent =
   | { type: 'seederDestroyed'; seeder: Seeder; byBullet: boolean }
   | { type: 'fighterDestroyed'; fighter: Fighter; byBullet: boolean }
+  | { type: 'mutantDestroyed'; mutant: Mutant; byBullet: boolean }
+  | { type: 'bomberDestroyed'; bomber: Bomber; byBullet: boolean }
+  /** A bullet hit a bomber that still has hits left. */
+  | { type: 'bomberHit'; bomber: Bomber; pos: Vec3 }
+  /** A seeder left alive too long turned into a mutant. */
+  | { type: 'seederMutated'; mutant: Mutant }
   | { type: 'fighterFired'; pos: Vec3 }
   /** A fighter's shot wrecked the craft. */
   | { type: 'craftShot'; pos: Vec3 }
@@ -136,13 +222,14 @@ export type EnemyEvent =
   | { type: 'waveStarted'; wave: number };
 
 export function createEnemies(seed: number): EnemyState {
-  return { seeders: [], spores: [], fighters: [], shots: [], wave: 0, score: 0, nextWaveIn: 0, nextId: 1, rng: createRng(seed) };
+  return { seeders: [], spores: [], fighters: [], mutants: [], bombers: [], shots: [], wave: 0, score: 0, nextWaveIn: 0, nextId: 1, rng: createRng(seed) };
 }
 
 /**
- * Advances seeders, fighters, their spores and shots, and the virus by `dt`. Bullets that
- * hit an enemy are removed from `bullets`; an enemy touching the craft wrecks both, and so
- * does a fighter's shot hitting it. `base` is the panel's settings; the wave's are derived
+ * Advances seeders, fighters, mutants, bombers, their spores and shots, and the virus by
+ * `dt`. Seeders alive for `mutateAfter` turn into mutants. Bullets that hit an enemy are
+ * removed from `bullets`; an enemy touching the craft wrecks both, and so does a fighter's
+ * shot hitting it. `base` is the panel's settings; the wave's are derived
  * from them by `waveSettings`. Returns what happened, for the renderer (explosions) and the HUD.
  */
 export function stepEnemies(
@@ -157,7 +244,7 @@ export function stepEnemies(
   const events: EnemyEvent[] = [];
   let settings = waveSettings(base, enemies.wave);
 
-  if (enemies.seeders.length === 0 && enemies.fighters.length === 0 && settings.firstWave >= 1) {
+  if (enemyCount(enemies) === 0 && settings.firstWave >= 1) {
     enemies.nextWaveIn -= dt;
     if (enemies.nextWaveIn <= 0) {
       enemies.wave++;
@@ -169,12 +256,39 @@ export function stepEnemies(
         const { x, z } = spawnPoint(enemies.rng, craft, terrain);
         enemies.fighters.push(spawnFighter(enemies.nextId++, x, z, terrain, enemies.rng));
       }
+      const bombers = enemies.wave >= settings.bombersFromWave ? Math.round(Math.max(0, settings.bombers)) : 0;
+      for (let k = 0; k < bombers; k++) {
+        const { x, z } = spawnPoint(enemies.rng, craft, terrain);
+        enemies.bombers.push(spawnBomber(enemies.nextId++, x, z, terrain, enemies.rng));
+      }
       enemies.nextWaveIn = WAVE_DELAY;
       events.push({ type: 'waveStarted', wave: enemies.wave });
     }
   }
 
   for (const s of enemies.seeders) fly(s, enemies, terrain, dt, settings);
+  if (settings.mutateAfter > 0) {
+    enemies.seeders = enemies.seeders.filter((s) => {
+      if (s.age < settings.mutateAfter) return true;
+      const mutant = mutate(s.id, s.pos, s.vel, enemies.rng);
+      enemies.mutants.push(mutant);
+      events.push({ type: 'seederMutated', mutant });
+      return false;
+    });
+  }
+  for (const m of enemies.mutants) {
+    flyMutant(m, craft, terrain, dt, settings.mutantSpeed, physics.maxAltitude, enemies.rng);
+    // Mutants still spread the virus, as seeders do.
+    m.dropIn -= dt;
+    if (m.dropIn <= 0 && terrain.canInfect(Math.floor(m.pos.x), Math.floor(m.pos.z))) {
+      enemies.spores.push({ pos: { ...m.pos, y: m.pos.y - 0.2 }, vel: { x: m.vel.x * 0.3, y: 0, z: m.vel.z * 0.3 } });
+      m.dropIn = settings.sporeInterval * (0.7 + 0.6 * enemies.rng());
+    }
+  }
+  for (const b of enemies.bombers) {
+    const bomb = flyBomber(b, terrain, dt, settings.bomberSpeed, enemies.rng);
+    if (bomb) enemies.spores.push(bomb);
+  }
   for (const f of enemies.fighters) {
     const shot = flyFighter(f, craft, terrain, dt, settings, physics.maxAltitude, enemies.rng);
     if (shot) {
@@ -207,37 +321,22 @@ export function stepEnemies(
 
   stepVirus(terrain, settings.virusSpread, dt, enemies.rng);
 
-  // Bullets and the craft against seeders.
-  enemies.seeders = enemies.seeders.filter((s) => {
-    const hit = bullets.findIndex((b) => near(terrain, b.pos, s.pos, SEEDER_RADIUS, SEEDER_RADIUS));
+  // Bullets and the craft against every enemy. A bomber takes several hits.
+  for (const t of targets(enemies)) {
+    const hit = bullets.findIndex((b) => near(terrain, b.pos, t.pos, t.radius, t.radius));
     if (hit >= 0) {
-      bullets.splice(hit, 1);
-      enemies.score += SEEDER_POINTS;
-      events.push({ type: 'seederDestroyed', seeder: s, byBullet: true });
-      return false;
-    }
-    if (craft.status !== 'crashed' && near(terrain, craft.pos, s.pos, SEEDER_RADIUS + CRAFT_RADIUS, SEEDER_RADIUS)) {
+      const [bullet] = bullets.splice(hit, 1);
+      const bomber = enemies.bombers.find((b) => b.id === t.id);
+      if (bomber && --bomber.hp > 0) {
+        events.push({ type: 'bomberHit', bomber, pos: { ...bullet!.pos } });
+        continue;
+      }
+      events.push(killEnemy(enemies, t.id, true)!);
+    } else if (craft.status !== 'crashed' && near(terrain, craft.pos, t.pos, t.radius + CRAFT_RADIUS, t.radius)) {
       crashCraft(craft, physics);
-      events.push({ type: 'seederDestroyed', seeder: s, byBullet: false });
-      return false;
+      events.push(killEnemy(enemies, t.id, false)!);
     }
-    return true;
-  });
-  enemies.fighters = enemies.fighters.filter((f) => {
-    const hit = bullets.findIndex((b) => near(terrain, b.pos, f.pos, FIGHTER_RADIUS, FIGHTER_RADIUS));
-    if (hit >= 0) {
-      bullets.splice(hit, 1);
-      enemies.score += FIGHTER_POINTS;
-      events.push({ type: 'fighterDestroyed', fighter: f, byBullet: true });
-      return false;
-    }
-    if (craft.status !== 'crashed' && near(terrain, craft.pos, f.pos, FIGHTER_RADIUS + CRAFT_RADIUS, FIGHTER_RADIUS)) {
-      crashCraft(craft, physics);
-      events.push({ type: 'fighterDestroyed', fighter: f, byBullet: false });
-      return false;
-    }
-    return true;
-  });
+  }
 
   return events;
 }
@@ -270,6 +369,7 @@ function spawnSeeder(enemies: EnemyState, craft: CraftState, terrain: Terrain, s
     vel: { x: 0, y: 0, z: 0 },
     target: wander(rng, terrain, x, z),
     dropIn: settings.sporeInterval * rng(),
+    age: 0,
   };
 }
 
@@ -298,6 +398,7 @@ function fly(s: Seeder, enemies: EnemyState, terrain: Terrain, dt: number, setti
   s.pos.y += s.vel.y * dt;
   s.pos.z = terrain.wrap(s.pos.z + s.vel.z * dt);
 
+  s.age += dt;
   s.dropIn -= dt;
   if (s.dropIn <= 0 && terrain.canInfect(Math.floor(s.pos.x), Math.floor(s.pos.z))) {
     enemies.spores.push({ pos: { ...s.pos, y: s.pos.y - 0.2 }, vel: { x: s.vel.x * 0.3, y: 0, z: s.vel.z * 0.3 } });

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { proximityLevel, SoundEngine } from './audio/sound';
 import { MouseInput } from './input';
+import { BomberView } from './render/bomberView';
 import { BulletView, FIGHTER_TRACER } from './render/bulletView';
 import { CameraRig } from './render/cameraRig';
 import { CraftView } from './render/craftView';
@@ -19,7 +20,7 @@ import { createAutopilot, stepAutopilot, toggleAutopilot } from './sim/autopilot
 import { createCannon, stepCannon } from './sim/cannon';
 import { spawnCraft, stepCraft } from './sim/craft';
 import { createDemoPilot, DEMO_ENEMIES, stepDemoPilot } from './sim/demoPilot';
-import { createEnemies, isOverrun, nearestEnemyDistance, stepEnemies, type EnemyEvent } from './sim/enemies';
+import { createEnemies, enemyCount, isOverrun, nearestEnemyDistance, stepEnemies, targets, type EnemyEvent } from './sim/enemies';
 import { buildMap, findMap } from './sim/maps';
 import { createArsenal, detonateBomb, fireMissile, restock, stepMissiles, type WeaponEvent } from './sim/weapons';
 import type { Terrain } from './sim/terrain';
@@ -116,6 +117,7 @@ let treeView: TreeView;
 let bulletView: BulletView;
 let shotView: BulletView;
 let fighterView: FighterView;
+let bomberView: BomberView;
 let missileView: MissileView;
 let effectsView: EffectsView;
 let seederView: SeederView;
@@ -138,6 +140,7 @@ function buildViews() {
   bulletView = new BulletView();
   shotView = new BulletView(FIGHTER_TRACER);
   fighterView = new FighterView(terrain);
+  bomberView = new BomberView(terrain);
   missileView = new MissileView();
   effectsView = new EffectsView(terrain);
   seederView = new SeederView(terrain);
@@ -159,10 +162,13 @@ function buildViews() {
     shotView.heads,
     fighterView.shadows,
     fighterView.fighters,
+    bomberView.shadows,
+    bomberView.bombers,
     missileView.missiles,
     effectsView.shockwave,
     seederView.shadows,
     seederView.seeders,
+    seederView.mutants,
     seederView.spores,
     effectsView.debris,
     effectsView.particles,
@@ -174,7 +180,7 @@ buildViews();
 /** Set when the virus takes over; the sim stays frozen until a new game starts. */
 let gameOver: { stats: GameOverStats; newBest: boolean } | null = null;
 
-const showPanel = () => panel.show('paused', terrain, palette, craft.pos, [...enemies.seeders, ...enemies.fighters]);
+const showPanel = () => panel.show('paused', terrain, palette, craft.pos, targets(enemies));
 
 /** The map picked for the next game, for the settings panel's minimap while on the title screen. */
 const previews = new Map<string, { terrain: Terrain; palette: Palette }>();
@@ -406,6 +412,28 @@ function showEvent(event: EnemyEvent | WeaponEvent) {
       rig.shake(0.55, distanceFromCraft(event.fighter.pos));
       break;
     }
+    case 'mutantDestroyed': {
+      const { geometry, matrix } = seederView.mutantShape(event.mutant, craft.pos, simTime);
+      effectsView.explode(geometry, matrix, event.mutant.vel);
+      sfx()?.explosion('mutant', distanceFromCraft(event.mutant.pos));
+      rig.shake(0.55, distanceFromCraft(event.mutant.pos));
+      break;
+    }
+    case 'bomberDestroyed': {
+      const { geometry, matrix } = bomberView.shape(event.bomber, craft.pos);
+      effectsView.explode(geometry, matrix, event.bomber.vel);
+      sfx()?.explosion('bomber', distanceFromCraft(event.bomber.pos));
+      rig.shake(0.7, distanceFromCraft(event.bomber.pos));
+      break;
+    }
+    case 'bomberHit':
+      effectsView.pop(nearCraft(event.pos));
+      sfx()?.clank(distanceFromCraft(event.pos));
+      break;
+    case 'seederMutated':
+      effectsView.mutation(nearCraft(event.mutant.pos));
+      sfx()?.mutation(distanceFromCraft(event.mutant.pos));
+      break;
     case 'fighterFired':
       sfx()?.enemyShot(distanceFromCraft(event.pos));
       break;
@@ -438,6 +466,11 @@ function flash() {
   flashOverlay.classList.add('go');
 }
 
+/** The copy of a wrapped world position nearest the craft, for effects drawn in the craft's frame. */
+function nearCraft(pos: { x: number; y: number; z: number }) {
+  return { x: craft.pos.x + terrain.delta(craft.pos.x, pos.x), y: pos.y, z: craft.pos.z + terrain.delta(craft.pos.z, pos.z) };
+}
+
 /** Horizontal distance from the craft across the wrapping world. */
 function distanceFromCraft(pos: { x: number; z: number }): number {
   return Math.hypot(terrain.delta(craft.pos.x, pos.x), terrain.delta(craft.pos.z, pos.z));
@@ -456,7 +489,7 @@ function proximityAlert(): number {
 function musicIntensity(alert: number): number {
   if (mode !== 'game' || !input.locked || gameOver) return 0;
   const virus = Math.min(1, terrain.infectedFraction() / Math.max(0.01, settings.enemies.overrunAt));
-  const enemiesAbout = enemies.seeders.length + enemies.fighters.length > 0 ? 0.15 : 0;
+  const enemiesAbout = enemyCount(enemies) > 0 ? 0.15 : 0;
   return 0.2 + enemiesAbout + 0.35 * virus + 0.4 * alert + (lives === 1 ? 0.1 : 0);
 }
 
@@ -601,6 +634,7 @@ function frame(now: number) {
   if (effectsDt > 0) for (const m of arsenal.inFlight) effectsView.missileTrail(m.pos);
   shotView.update(enemies.shots, { terrain, focus: patch });
   fighterView.update(enemies, patch, effectsDt);
+  bomberView.update(enemies, patch);
   seederView.update(enemies, patch, simTime);
   const sunk = effectsView.update(effectsDt, physics.gravity);
   splashQuiet -= elapsed;

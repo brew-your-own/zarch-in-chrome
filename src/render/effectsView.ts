@@ -9,12 +9,14 @@ const RAMP_SMOKE = 1;
 const RAMP_SPARK = 2;
 const RAMP_SPLASH = 3;
 const RAMP_LEAVES = 4;
+const RAMP_MUTATION = 5;
 const RAMPS = [
   ramp(0xffffff, 0xffe060, 0xff7010, 0xa01800, 0x200000),
   ramp(0x707070, 0x505050, 0x202020),
   ramp(0xffffc0, 0xffb030, 0x803000),
   ramp(0xffffff, 0xa0d0ff, 0x2449d6),
   ramp(0x80d040, 0x2a7f3e, 0x103010),
+  ramp(0xffffff, 0x90ff50, 0xd8185a, 0x300010),
 ];
 
 /** Where splashes start: the sea's resting surface. */
@@ -118,6 +120,11 @@ export class EffectsView {
     const jitter = () => rand(-0.15, 0.15);
     this.pool.spawn({ x: pos.x, y: pos.y, z: pos.z, vx: jitter(), vy: jitter(), vz: jitter(), life: rand(0.1, 0.2), ramp: RAMP_FIRE, gravity: 0 });
     this.pool.spawn({ x: pos.x, y: pos.y, z: pos.z, vx: jitter(), vy: 0.2, vz: jitter(), life: rand(0.5, 0.9), ramp: RAMP_SMOKE, gravity: -0.05 });
+  }
+
+  /** A seeder mutating at `pos`: a burst of acid green and crimson sparks. */
+  mutation(pos: Vec3): void {
+    this.burst(new THREE.Vector3(pos.x, pos.y, pos.z), { x: 0, y: 0, z: 0 }, 50, RAMP_MUTATION, 2.5, [0.4, 0.9], 0.2);
   }
 
   /** A missile blowing up without a target: a small fireball. */
