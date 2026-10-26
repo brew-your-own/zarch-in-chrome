@@ -27,7 +27,7 @@ const FACES: Face[] = [
 
 const SHADOW_LIFT = 0.02;
 
-function craftGeometry(): THREE.BufferGeometry {
+export function craftGeometry(): THREE.BufferGeometry {
   const positions: number[] = [];
   const colors: number[] = [];
   const c = new THREE.Color();

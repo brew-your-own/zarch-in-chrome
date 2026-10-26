@@ -22,21 +22,21 @@ export const COLOUR_PRESETS = {
 
 export const DEFAULT_COLOURS: Readonly<ColourSettings> = Object.freeze({ ...COLOUR_PRESETS.early.colours });
 
-const GRASS = [new THREE.Color(0x3fbf3a), new THREE.Color(0x8fae3c), new THREE.Color(0xc9a040)];
+export const GRASS = [new THREE.Color(0x3fbf3a), new THREE.Color(0x8fae3c), new THREE.Color(0xc9a040)];
 const PATCHES = [new THREE.Color(0xb5541e), new THREE.Color(0xd9792a), new THREE.Color(0x8a5a2b)];
 const SEA = [new THREE.Color(0x1d3fbf), new THREE.Color(0x2449d6)];
-const PAD = [new THREE.Color(0x9a9a9a), new THREE.Color(0xb4b4b4)];
+export const PAD = [new THREE.Color(0x9a9a9a), new THREE.Color(0xb4b4b4)];
 /** The title screen's lettering, pale stone, on a slab of dark stone: both clear of the grey pad. */
 const LETTERING = new THREE.Color(0xf2e8c9);
 const SLAB = new THREE.Color(0x3b4250);
-const PINE = new THREE.Color(0x24753a);
-const SUMMER_LEAVES = new THREE.Color(0x5aa83a);
-const AUTUMN_LEAVES = [0xd9b52a, 0xe5862a, 0xd0502a, 0xa8321e].map((c) => new THREE.Color(c));
+export const PINE = new THREE.Color(0x24753a);
+export const SUMMER_LEAVES = new THREE.Color(0x5aa83a);
+export const AUTUMN_LEAVES = [0xd9b52a, 0xe5862a, 0xd0502a, 0xa8321e].map((c) => new THREE.Color(c));
 /** The virus: a crimson-magenta kept clear of the brick-red autumn leaves. */
 export const VIRUS = new THREE.Color(0xd8185a);
-const VIRUS_LEAVES = new THREE.Color(0xa0104a);
+export const VIRUS_LEAVES = new THREE.Color(0xa0104a);
 /** Odd checkerboard tiles are this much darker. */
-const CHECKER_DARK = 0.82;
+export const CHECKER_DARK = 0.82;
 
 /**
  * Colours for one terrain under the current (live, mutable) colour settings.

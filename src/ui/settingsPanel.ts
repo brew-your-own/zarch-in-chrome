@@ -113,7 +113,7 @@ export interface SettingsPanelHandlers {
   /** Abandons the paused game for the title screen. */
   onQuit: () => void;
   onMapChange: (mapId: string) => void;
-  /** Opens the enemy guide over the panel. */
+  /** Opens the field guide over the panel. */
   onGuide: () => void;
   /** Called after any physics/plume/colour value changes. */
   onChange: () => void;
@@ -161,7 +161,7 @@ export class SettingsPanel {
     const header = el('header');
     this.primary.addEventListener('click', () => (this.context === 'title' ? handlers.onBack() : handlers.onResume()));
     this.quit.addEventListener('click', handlers.onQuit);
-    const guide = el('button', 'reset', 'Enemy guide');
+    const guide = el('button', 'reset', 'Field guide');
     guide.addEventListener('click', handlers.onGuide);
     header.append(el('h1', undefined, 'ZARCH'), this.status, guide, this.quit, this.primary, githubLink('panel-github'));
 

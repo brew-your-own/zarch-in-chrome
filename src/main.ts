@@ -27,7 +27,7 @@ import { buildMap, findMap } from './sim/maps';
 import { createArsenal, detonateBomb, fireMissile, restock, stepMissiles, type WeaponEvent } from './sim/weapons';
 import type { Terrain } from './sim/terrain';
 import { buildTitleMap, lettersInfected, type TitleMap } from './sim/titleMap';
-import { EnemyGuide } from './ui/enemyGuide';
+import { FieldGuide } from './ui/fieldGuide';
 import { GameOverScreen, recordScore, type GameOverStats } from './ui/gameOver';
 import { Hud } from './ui/hud';
 import { Scanner } from './ui/scanner';
@@ -281,10 +281,10 @@ function endGame(reason: GameOverStats['reason']) {
 }
 
 /**
- * The enemy guide, opened from the title screen or over the settings panel; Back returns
+ * The field guide, opened from the title screen or over the settings panel; Back returns
  * to where it was opened from (the panel stays up underneath it).
  */
-const guide = new EnemyGuide(document.querySelector<HTMLDivElement>('#guide')!, settings.enemies, () => closeGuide());
+const guide = new FieldGuide(document.querySelector<HTMLDivElement>('#guide')!, settings.enemies, () => closeGuide());
 function closeGuide() {
   guide.hide();
   if (mode === 'title' && !panel.visible) titleScreen.show();
@@ -343,7 +343,7 @@ const titleScreen = new TitleScreen(document.querySelector<HTMLDivElement>('#tit
 // R engages auto-refuel (once per wave), or hands control back if it is flying.
 // Space sets off a smart bomb; E fires a homing missile (as does the middle button).
 document.addEventListener('keydown', (e) => {
-  // Esc closes the enemy guide, or the settings opened from the title (in a game, Esc
+  // Esc closes the field guide, or the settings opened from the title (in a game, Esc
   // releases the pointer, which pauses).
   if (e.code === 'Escape' && guide.visible) closeGuide();
   else if (e.code === 'Escape' && panel.visible && panel.openedFrom === 'title') closeTitleSettings();

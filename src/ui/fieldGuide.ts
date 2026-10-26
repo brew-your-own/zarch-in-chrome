@@ -2,33 +2,83 @@ import * as THREE from 'three';
 import { bomberGeometry } from '../render/bomberView';
 import { fighterGeometry } from '../render/fighterView';
 import { mutantGeometry, seederGeometry } from '../render/seederView';
+import { padModel, treesModel, villageModel } from '../render/guideModels';
 import { Turntable, TURNTABLE_HEIGHT, TURNTABLE_WIDTH } from '../render/turntable';
 import { BOMBER_HITS, BOMBER_POINTS } from '../sim/bombers';
+import { RESCUE_TIME } from '../sim/buildings';
 import { SEEDER_POINTS, type EnemySettings } from '../sim/enemies';
 import { FIGHTER_POINTS } from '../sim/fighters';
 import { MUTANT_POINTS } from '../sim/mutants';
 
-interface EnemyCard {
+/** Text on a card: fixed, or read from the live settings each time the guide opens. */
+type Text = string | ((e: EnemySettings) => string);
+
+interface Card {
   name: string;
-  points: number;
+  /** Top right of the card: an enemy's points, or a short tag. */
+  tag: Text;
   geometry: THREE.BufferGeometry;
   /** Model scale, and the radius of its shadow, so each fills its picture. */
   size: number;
   shadow: number;
   /** Its pose at time `t` (seconds). */
   pose: (t: number, out: THREE.Euler) => THREE.Euler;
-  /** When it turns up, from the live settings. */
-  appears: (e: EnemySettings) => string;
-  does: string;
-  beat: string;
+  /** Where or when it turns up. */
+  appears: Text;
+  does: Text;
+  /** The tip, in the accent colour. */
+  beat: Text;
 }
+
+const text = (t: Text, e: EnemySettings) => (typeof t === 'string' ? t : t(e));
+const spin = (rate: number) => (t: number, out: THREE.Euler) => out.set(0, t * rate, 0);
 
 const wave = (n: number) => `wave ${Math.max(1, Math.round(n))}`;
 
-const CARDS: EnemyCard[] = [
+const LAND: Card[] = [
+  {
+    name: 'Launch pad',
+    tag: 'Base',
+    geometry: padModel(),
+    size: 0.6,
+    shadow: 0,
+    pose: spin(0.4),
+    appears: 'At the centre of every map, where each life begins.',
+    does: 'Land on it gently to refuel. The virus can never take it.',
+    beat: 'A safe haven: fighters hold fire and mutants won\'t dive while you sit on it.',
+  },
+  {
+    name: 'Trees',
+    tag: 'Obstacle',
+    geometry: treesModel(),
+    size: 0.68,
+    shadow: 0,
+    pose: spin(0.35),
+    appears: 'Forests on every map, thickest in the hills. They turn crimson on infected land.',
+    does: 'Solid: flying into one wrecks the craft, and they block shots, yours and the fighters\'.',
+    beat: 'A bullet knocks a tree down, which clears a way out of a tight spot.',
+  },
+  {
+    name: 'Villages',
+    tag: (e) => (e.buildingBonus > 0 ? `+${Math.round(e.buildingBonus)} / wave` : 'Protect'),
+    geometry: villageModel(),
+    size: 0.68,
+    shadow: 0,
+    pose: spin(0.3),
+    appears: (e) =>
+      e.buildingsLostAt < 1
+        ? `A few on each map. Lose ${Math.round(e.buildingsLostAt * 100)}% of the buildings and the game is over.`
+        : 'A few on each map. Lose them all and the game is over.',
+    does: (e) =>
+      `When the virus reaches a building it pulses crimson, and after ${Math.round(e.buildingFallTime)} s it falls. Its ruin keeps spreading the virus.`,
+    beat: `Hover low over an infected building for ${RESCUE_TIME} s to save it and clean the land around it.`,
+  },
+];
+
+const ENEMIES: Card[] = [
   {
     name: 'Seeder',
-    points: SEEDER_POINTS,
+    tag: `${SEEDER_POINTS} pts`,
     geometry: seederGeometry(),
     size: 2.2,
     shadow: 0.8,
@@ -39,7 +89,7 @@ const CARDS: EnemyCard[] = [
   },
   {
     name: 'Mutant',
-    points: MUTANT_POINTS,
+    tag: `${MUTANT_POINTS} pts`,
     geometry: mutantGeometry(),
     size: 2,
     shadow: 0.8,
@@ -50,7 +100,7 @@ const CARDS: EnemyCard[] = [
   },
   {
     name: 'Fighter',
-    points: FIGHTER_POINTS,
+    tag: `${FIGHTER_POINTS} pts`,
     geometry: fighterGeometry(),
     size: 2.1,
     shadow: 0.85,
@@ -61,7 +111,7 @@ const CARDS: EnemyCard[] = [
   },
   {
     name: 'Bomber',
-    points: BOMBER_POINTS,
+    tag: `${BOMBER_POINTS} pts`,
     geometry: bomberGeometry(),
     size: 1.45,
     shadow: 1,
@@ -79,14 +129,22 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
   return node;
 }
 
+const SECTIONS = [
+  { title: 'The land', cards: LAND },
+  { title: 'Enemies', cards: ENEMIES },
+];
+const CARDS = SECTIONS.flatMap((s) => s.cards);
+
 /**
- * The enemy guide in `#guide`: a card per enemy, with its model turning in a picture, its
- * points, when it turns up (read from the live settings each time the guide opens), what
- * it does and how to beat it.
+ * The field guide in `#guide`: a card for each thing in the world, the land first (the
+ * pad, trees, villages) and then the enemies. Each has its model turning in a picture, a
+ * tag (an enemy's points), where or when it turns up, what it does and a tip. Text that
+ * depends on the settings is read from them each time the guide opens.
  */
-export class EnemyGuide {
+export class FieldGuide {
   private readonly pictures: HTMLCanvasElement[] = [];
-  private readonly appears: HTMLElement[] = [];
+  /** Per card: its live text nodes and how to fill them. */
+  private readonly live: { node: HTMLElement; text: Text }[] = [];
   private turntable?: Turntable;
   private frame = 0;
   private readonly euler = new THREE.Euler();
@@ -100,23 +158,26 @@ export class EnemyGuide {
     const header = el('header');
     const back = el('button', 'fly', '◂ BACK');
     back.addEventListener('click', onBack);
-    header.append(el('h1', undefined, 'ENEMIES'), el('p', 'status', 'Stop them before the virus takes the land.'), back);
+    header.append(el('h1', undefined, 'GUIDE'), el('p', 'status', 'Know the land, and what is out to take it.'), back);
+    panel.append(header);
 
-    const cards = el('div', 'guide-cards');
-    for (const card of CARDS) {
-      const picture = el('canvas', 'guide-picture');
-      this.pictures.push(picture);
-      const appears = el('p', 'guide-appears');
-      this.appears.push(appears);
-      const title = el('h2');
-      title.append(el('span', undefined, card.name), el('span', 'guide-points', `${card.points} pts`));
-      const text = el('div', 'guide-text');
-      text.append(title, appears, el('p', undefined, card.does), el('p', 'guide-beat', card.beat));
-      const node = el('article', 'guide-card');
-      node.append(picture, text);
-      cards.append(node);
+    const live = (node: HTMLElement, t: Text) => (this.live.push({ node, text: t }), node);
+    for (const section of SECTIONS) {
+      const cards = el('div', 'guide-cards');
+      for (const card of section.cards) {
+        const picture = el('canvas', 'guide-picture');
+        this.pictures.push(picture);
+        const title = el('h3');
+        title.append(el('span', undefined, card.name), live(el('span', 'guide-tag'), card.tag));
+        const body = el('div', 'guide-text');
+        body.append(title, live(el('p', 'guide-appears'), card.appears), live(el('p'), card.does), live(el('p', 'guide-beat'), card.beat));
+        const node = el('article', 'guide-card');
+        node.append(picture, body);
+        cards.append(node);
+      }
+      panel.append(el('h2', 'guide-section', section.title), cards);
     }
-    panel.append(header, cards, el('p', 'note', 'Every wave after the first is harder: enemies fly faster, drop spores and fire more often, aim better and mutate sooner. The Enemies section of the settings tunes all of this.'));
+    panel.append(el('p', 'note', 'Every wave after the first is harder: enemies fly faster, drop spores and fire more often, aim better and mutate sooner. The Enemies section of the settings tunes all of this.'));
     root.append(panel);
   }
 
@@ -125,7 +186,7 @@ export class EnemyGuide {
   }
 
   show(): void {
-    CARDS.forEach((card, k) => (this.appears[k]!.textContent = card.appears(this.enemies)));
+    for (const { node, text: t } of this.live) node.textContent = text(t, this.enemies);
     this.root.classList.remove('hidden');
     if (!this.turntable) {
       this.turntable = new Turntable();
@@ -135,12 +196,12 @@ export class EnemyGuide {
       }
     }
     cancelAnimationFrame(this.frame);
-    const spin = (now: number) => {
+    const turn = (now: number) => {
       const t = now / 1000;
       CARDS.forEach((card, k) => this.turntable!.draw(card.geometry, this.pictures[k]!, card.size, card.pose(t + k, this.euler), card.shadow));
-      this.frame = requestAnimationFrame(spin);
+      this.frame = requestAnimationFrame(turn);
     };
-    this.frame = requestAnimationFrame(spin);
+    this.frame = requestAnimationFrame(turn);
   }
 
   hide(): void {

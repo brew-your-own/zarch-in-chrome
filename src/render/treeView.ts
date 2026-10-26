@@ -80,6 +80,14 @@ const GEOMETRY = {
 
 type Kind = Exclude<TreeKind, typeof TREE_NONE>;
 
+/** One tree of `kind` at scale 1, base at the origin, as a single geometry with `leaves` as its foliage colour. */
+export function treeGeometry(kind: Kind, leaves: THREE.Color): THREE.BufferGeometry {
+  const foliage = GEOMETRY[kind].foliage();
+  const c = foliage.attributes.color!;
+  for (let k = 0; k < c.count; k++) c.setXYZ(k, c.getX(k) * leaves.r, c.getY(k) * leaves.g, c.getZ(k) * leaves.b);
+  return mergeGeometries([GEOMETRY[kind].wood(), foliage])!;
+}
+
 /**
  * Trees in the visible patch: per kind, a wood and a foliage InstancedMesh refilled every frame.
  * Each tree gets a stable yaw, size and shade from its tile hash, and its foliage colour from the palette.

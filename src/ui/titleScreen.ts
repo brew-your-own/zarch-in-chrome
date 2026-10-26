@@ -75,7 +75,7 @@ export class TitleScreen {
     fly.addEventListener('click', handlers.onFly);
     const settings = el('button', 'reset', 'Settings');
     settings.addEventListener('click', handlers.onSettings);
-    const guide = el('button', 'reset', 'Enemies');
+    const guide = el('button', 'reset', 'Guide');
     guide.addEventListener('click', handlers.onGuide);
     const buttons = el('div', 'title-buttons');
     buttons.append(fly, settings, guide);

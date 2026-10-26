@@ -7,7 +7,7 @@ export const TURNTABLE_HEIGHT = 120;
 
 /**
  * Draws single models, lit like the game, into small 2D canvases: one WebGL renderer
- * renders each model in turn and its picture is copied out. Used by the enemy guide, so
+ * renders each model in turn and its picture is copied out. Used by the field guide, so
  * a handful of pictures need only one WebGL context.
  */
 export class Turntable {
@@ -42,13 +42,14 @@ export class Turntable {
 
   /**
    * Draws `geometry` into `target`, scaled to `size` and posed by `rotation` (Euler angles,
-   * radians). `shadowSize` is the radius of its shadow.
+   * radians). `shadowSize` is the radius of its shadow, 0 for none (a diorama brings its own ground).
    */
   draw(geometry: THREE.BufferGeometry, target: HTMLCanvasElement, size: number, rotation: THREE.Euler, shadowSize: number): void {
     this.mesh.geometry = geometry;
     this.mesh.scale.setScalar(size);
     this.mesh.rotation.copy(rotation);
-    this.shadow.scale.setScalar(shadowSize);
+    this.shadow.visible = shadowSize > 0;
+    this.shadow.scale.setScalar(Math.max(shadowSize, 1e-3));
     this.renderer.render(this.scene, this.camera);
     const ctx = target.getContext('2d')!;
     ctx.clearRect(0, 0, target.width, target.height);

@@ -124,16 +124,17 @@ html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
 .preset:hover { border-color: var(--accent); }
 .preset.selected { color: #000; background: var(--accent); border-color: var(--accent); }
 
-/* Enemy guide: a card per enemy, its model turning in a picture beside the text. */
+/* Field guide: a card per thing in the world, its model turning in a picture beside the text. */
 #guide { background: rgba(0, 0, 0, 0.65); }
-.guide-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
+.guide-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.panel h2.guide-section { margin-top: 22px; }
 @media (max-width: 720px) { .guide-cards { grid-template-columns: 1fr; } }
 .guide-card { display: flex; gap: 12px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.35); }
 .guide-picture { flex: none; width: 168px; height: 120px; }
 .guide-text { min-width: 0; }
 .guide-text p { margin: 0 0 6px; }
-.panel .guide-text h2 { display: flex; justify-content: space-between; margin: 0 0 6px; }
-.guide-points { color: var(--text); letter-spacing: 0; text-transform: none; }
+.guide-text h3 { display: flex; justify-content: space-between; gap: 8px; margin: 0 0 6px; font-size: 13px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--accent); }
+.guide-tag { color: var(--text); letter-spacing: 0; text-transform: none; }
 .guide-appears { color: var(--muted); }
 .guide-beat { color: var(--accent); }
 @media (max-width: 420px) { .guide-card { flex-direction: column; } }
