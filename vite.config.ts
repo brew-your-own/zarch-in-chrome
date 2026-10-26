@@ -7,10 +7,12 @@ export default defineConfig({
   build: {
     rolldownOptions: {
       output: {
-        // Three.js in a chunk of its own: its hash only changes when the library is upgraded,
-        // so after a deploy a returning browser only fetches the game's own (much smaller) chunk.
+        // The core of Three.js in a chunk of its own, so a deploy usually leaves it as it was and
+        // a returning browser only fetches the game's own (much smaller) chunk. Only the parts the
+        // game uses are bundled, so the chunk does change when a commit starts or stops using a
+        // Three.js class, as well as on an upgrade. Add-ons (`three/examples/jsm`) stay with the game.
         codeSplitting: {
-          groups: [{ name: 'three', test: /node_modules[\\/]three[\\/]/ }],
+          groups: [{ name: 'three', test: /node_modules[\\/]three[\\/]build[\\/]/ }],
         },
       },
     },
