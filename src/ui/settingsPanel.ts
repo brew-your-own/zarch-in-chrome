@@ -55,6 +55,10 @@ const ENEMY_SLIDERS: SliderSpec<Settings['enemies']>[] = [
   { key: 'bombers', label: 'Bombers per wave', min: 0, max: 3, step: 1 },
   { key: 'bombersFromWave', label: 'Bombers from wave', min: 1, max: 10, step: 1 },
   { key: 'bomberSpeed', label: 'Bomber speed', min: 0.5, max: 8, step: 0.1, unit: 'u/s' },
+  { key: 'pests', label: 'Pests per wave', min: 0, max: 10, step: 1 },
+  { key: 'pestsFromWave', label: 'Pests from wave', min: 1, max: 10, step: 1 },
+  { key: 'pestSpeed', label: 'Pest speed', min: 1, max: 8, step: 0.1, unit: 'u/s' },
+  { key: 'pestDrain', label: 'Pest bite', min: 0, max: 50, step: 1, unit: 'fuel' },
 ];
 
 const GAME_SLIDERS: SliderSpec<Settings['enemies']>[] = [
@@ -102,6 +106,14 @@ const COLOUR_SLIDERS: SliderSpec<Settings['colours']>[] = [
   { key: 'patches', label: 'Ground patches', min: 0, max: 100, step: 1, unit: '%', scale: 100 },
 ];
 
+/** Testing aids, toggled in the Debug section while paused. Not part of the saved settings. */
+export interface DebugAids {
+  /** Nothing wrecks the craft. */
+  invulnerable: boolean;
+  /** The tank is kept full. */
+  infiniteFuel: boolean;
+}
+
 /** Where the panel was opened from: the title screen, or a game paused with Esc. */
 export type PanelContext = 'title' | 'paused';
 
@@ -115,6 +127,8 @@ export interface SettingsPanelHandlers {
   onMapChange: (mapId: string) => void;
   /** Opens the field guide over the panel. */
   onGuide: () => void;
+  /** Debug, while paused: clears the enemies and starts `wave`. */
+  onJumpToWave: (wave: number) => void;
   /** Called after any physics/plume/colour value changes. */
   onChange: () => void;
 }
@@ -144,6 +158,8 @@ export class SettingsPanel {
   private readonly presetButtons = new Map<keyof typeof COLOUR_PRESETS, HTMLButtonElement>();
   private readonly primary = el('button', 'fly');
   private readonly quit = el('button', 'reset', 'Quit to title');
+  private readonly debugSection = el('section', 'debug');
+  private readonly waveInput = el('input');
   private context: PanelContext = 'title';
   private shown?: {
     terrain: Terrain;
@@ -155,6 +171,7 @@ export class SettingsPanel {
   constructor(
     private readonly root: HTMLElement,
     private readonly settings: Settings,
+    debug: DebugAids,
     private readonly handlers: SettingsPanelHandlers,
   ) {
     const panel = el('div', 'panel');
@@ -184,6 +201,33 @@ export class SettingsPanel {
       cards.append(card);
     }
     mapSection.append(el('h2', undefined, 'Map'), this.minimap, cards);
+
+    // Debug, only while paused in a game: jump to any wave to try out later enemies.
+    this.waveInput.type = 'number';
+    this.waveInput.min = '1';
+    this.waveInput.max = '99';
+    const jump = el('button', 'reset', 'Jump');
+    const go = () => {
+      const wave = Math.max(1, Math.min(99, Math.round(Number(this.waveInput.value) || 1)));
+      handlers.onJumpToWave(wave);
+    };
+    jump.addEventListener('click', go);
+    // Typing a number mustn't fire the game's keys (E, R, Space); Esc still closes the panel.
+    this.waveInput.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') e.stopPropagation();
+      if (e.key === 'Enter') go();
+    });
+    const row = el('label', 'debug-row');
+    row.append(el('span', undefined, 'Jump to wave'), this.waveInput, jump);
+    this.debugSection.append(
+      el('h2', undefined, 'Debug'),
+      row,
+      el('p', 'note', 'Clears the enemies and starts that wave as you resume. The land, buildings and score stay as they are.'),
+      this.toggle(debug, 'invulnerable', 'Invulnerable', 'Nothing wrecks the craft: enemies, shots, trees, hard landings.', false),
+      this.toggle(debug, 'infiniteFuel', 'Infinite fuel', 'The tank stays full, whatever burns it or bites it.', false),
+      el('p', 'note', 'These aren\'t saved, and a game that uses any of them doesn\'t count for the best score.'),
+    );
+    mapSection.append(this.debugSection);
 
     const tuning = el('section');
     tuning.append(el('h2', undefined, 'Physics'));
@@ -259,8 +303,12 @@ export class SettingsPanel {
     palette: Palette,
     craftPos?: { x: number; z: number },
     enemies: readonly { pos: { x: number; z: number } }[] = [],
+    /** The game's current wave, while paused: the jump box starts at the next one. */
+    wave = 0,
   ): void {
     this.context = context;
+    this.debugSection.classList.toggle('hidden', context !== 'paused');
+    this.waveInput.value = String(wave + 1);
     this.status.textContent = context === 'paused' ? 'PAUSED' : 'Settings';
     this.primary.textContent = context === 'paused' ? 'RESUME ▸' : '◂ BACK';
     this.quit.classList.toggle('hidden', context !== 'paused');
@@ -314,14 +362,15 @@ export class SettingsPanel {
   }
 
   /** A checkbox bound to a boolean setting, with a short explanation beside it. */
-  private toggle<T extends object>(target: T, key: keyof T & string, label: string, hint: string): HTMLElement {
+  /** A checkbox for a boolean in `target`; `save` says whether a change is saved with the settings. */
+  private toggle<T extends object>(target: T, key: keyof T & string, label: string, hint: string, save = true): HTMLElement {
     const row = el('label', 'toggle');
     const input = el('input');
     input.type = 'checkbox';
     input.addEventListener('change', () => {
       (target[key] as boolean) = input.checked;
       this.refresh();
-      this.handlers.onChange();
+      if (save) this.handlers.onChange();
     });
     this.refreshers.push(() => (input.checked = target[key] as boolean));
     row.append(input, el('span', 'name', label), el('span', 'hint', hint));

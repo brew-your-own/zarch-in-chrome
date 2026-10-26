@@ -28,12 +28,15 @@ The enemies:
 - **Mutants:** a seeder left alive for 40 seconds mutates. It keeps spreading the virus, and it hunts you too, diving at you from above. Keep moving and it misses.
 - **Fighters** join from wave 2. They circle you and shoot.
 - **Bombers** join from wave 3. They fly straight across the map, laying the virus in long lines, and take three hits to bring down.
+- **Pests** swarm in from wave 4. They don't spread the virus, but each one that reaches you bites off some fuel, so a swarm can send you back to the pad. Shoot them or outrun them.
 
 Each map has a few **villages**. When the virus reaches a building it starts to pulse red, and about 15 seconds later it falls to a ruin that keeps spreading the virus. To save it, hover low over it for two seconds: that cures it and cleans the ground around it. Every wave you survive pays a bonus for each building still standing, and if every building falls, the game is over.
 
 Each wave is a little harder than the last: enemies move and shoot faster and aim better, up to a cap.
 
 The settings panel, opened from the title screen or by pausing, has the map picker and lets you tune physics, enemies, difficulty, weapons, lives, colours, sound and music. Settings are saved in your browser.
+
+To try things out, pause and use the Debug section: **Jump to wave** clears the enemies and starts any wave, **Invulnerable** means nothing can wreck you, and **Infinite fuel** keeps the tank full. They aren't saved, and a game that uses any of them doesn't count for the best score.
 
 ## Development
 

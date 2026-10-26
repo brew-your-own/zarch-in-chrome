@@ -4,6 +4,7 @@ import { BOMBER_POINTS, BOMBER_RADIUS, flyBomber, spawnBomber, type Bomber } fro
 import type { Bullet } from './cannon';
 import { FIGHTER_POINTS, FIGHTER_RADIUS, flyFighter, moveShot, spawnFighter, type EnemyShot, type Fighter } from './fighters';
 import { flyMutant, mutate, MUTANT_POINTS, MUTANT_RADIUS, type Mutant } from './mutants';
+import { flyPest, PEST_POINTS, PEST_RADIUS, spawnPest, type Pest } from './pests';
 import { createRng } from './rng';
 import type { Terrain } from './terrain';
 import { stepVirus } from './virus';
@@ -37,6 +38,13 @@ export interface EnemySettings {
   bombersFromWave: number;
   /** Bomber speed (units/s). */
   bomberSpeed: number;
+  /** Pests in each wave's swarm from `pestsFromWave` on. 0 means none. */
+  pests: number;
+  pestsFromWave: number;
+  /** Pest top speed (units/s). */
+  pestSpeed: number;
+  /** Fuel a pest's bite drains. */
+  pestDrain: number;
   /** Craft per game; losing the last one ends it. */
   lives: number;
   /** Seconds an infected building stands before it falls (unless the craft saves it). */
@@ -66,6 +74,10 @@ export const DEFAULT_ENEMIES: Readonly<EnemySettings> = Object.freeze({
   bombers: 1,
   bombersFromWave: 3,
   bomberSpeed: 2.5,
+  pests: 4,
+  pestsFromWave: 4,
+  pestSpeed: 4.2,
+  pestDrain: 12,
   lives: 3,
   buildingFallTime: 15,
   buildingsLostAt: 1,
@@ -94,6 +106,7 @@ export function waveSettings(settings: EnemySettings, wave: number): EnemySettin
     mutateAfter: settings.mutateAfter / f,
     mutantSpeed: settings.mutantSpeed * speed,
     bomberSpeed: settings.bomberSpeed * speed,
+    pestSpeed: settings.pestSpeed * speed,
     fighterFireInterval: settings.fighterFireInterval / f,
     fighterAccuracy: Math.min(Math.max(settings.fighterAccuracy, MAX_RAMPED_ACCURACY), settings.fighterAccuracy + (f - 1) * 0.25),
   };
@@ -125,11 +138,12 @@ export function targets(enemies: EnemyState): Target[] {
     ...enemies.mutants.map((e) => ({ id: e.id, pos: e.pos, vel: e.vel, radius: MUTANT_RADIUS })),
     ...enemies.bombers.map((e) => ({ id: e.id, pos: e.pos, vel: e.vel, radius: BOMBER_RADIUS })),
     ...enemies.seeders.map((e) => ({ id: e.id, pos: e.pos, vel: e.vel, radius: SEEDER_RADIUS })),
+    ...enemies.pests.map((e) => ({ id: e.id, pos: e.pos, vel: e.vel, radius: PEST_RADIUS })),
   ];
 }
 
 export function enemyCount(enemies: EnemyState): number {
-  return enemies.seeders.length + enemies.fighters.length + enemies.mutants.length + enemies.bombers.length;
+  return enemies.seeders.length + enemies.fighters.length + enemies.mutants.length + enemies.bombers.length + enemies.pests.length;
 }
 
 /**
@@ -164,7 +178,30 @@ export function killEnemy(enemies: EnemyState, id: number, byBullet: boolean): E
     score(BOMBER_POINTS);
     return { type: 'bomberDestroyed', bomber, byBullet };
   }
+  const pest = take(enemies.pests);
+  if (pest) {
+    score(PEST_POINTS);
+    return { type: 'pestDestroyed', pest, byBullet };
+  }
   return null;
+}
+
+/**
+ * Debug: removes every enemy, spore and shot, and starts `wave` on the next step, as if the
+ * waves before it had been cleared (without paying their building bonus). The land, the
+ * buildings and the score are left as they are.
+ */
+export function jumpToWave(enemies: EnemyState, wave: number): void {
+  enemies.seeders = [];
+  enemies.spores = [];
+  enemies.fighters = [];
+  enemies.mutants = [];
+  enemies.bombers = [];
+  enemies.pests = [];
+  enemies.shots = [];
+  enemies.wave = Math.max(0, Math.round(wave) - 1);
+  enemies.nextWaveIn = 0;
+  enemies.skipBonus = true;
 }
 
 /** Horizontal distance (wrapped) from `pos` to the nearest enemy, or Infinity if there is none. */
@@ -212,6 +249,7 @@ export interface EnemyState {
   fighters: Fighter[];
   mutants: Mutant[];
   bombers: Bomber[];
+  pests: Pest[];
   /** Fighters' shots in flight. */
   shots: EnemyShot[];
   wave: number;
@@ -220,8 +258,12 @@ export interface EnemyState {
   waveBonus: number;
   /** Seconds until the next wave, once the current one is cleared. */
   nextWaveIn: number;
+  /** Set by `jumpToWave`: the next wave pays no building bonus. */
+  skipBonus: boolean;
   nextId: number;
   rng: () => number;
+  /** Pests jitter about a lot; their own stream keeps them from reshuffling everything else. */
+  pestRng: () => number;
 }
 
 export type EnemyEvent =
@@ -229,6 +271,10 @@ export type EnemyEvent =
   | { type: 'fighterDestroyed'; fighter: Fighter; byBullet: boolean }
   | { type: 'mutantDestroyed'; mutant: Mutant; byBullet: boolean }
   | { type: 'bomberDestroyed'; bomber: Bomber; byBullet: boolean }
+  /** `byBullet` false: it bit the craft (see `craftBitten`). */
+  | { type: 'pestDestroyed'; pest: Pest; byBullet: boolean }
+  /** A pest reached the craft and drained `fuel`. */
+  | { type: 'craftBitten'; pos: Vec3; fuel: number }
   /** A bullet hit a bomber that still has hits left. */
   | { type: 'bomberHit'; bomber: Bomber; pos: Vec3 }
   /** A seeder left alive too long turned into a mutant. */
@@ -242,11 +288,11 @@ export type EnemyEvent =
   | BuildingEvent;
 
 export function createEnemies(seed: number): EnemyState {
-  return { seeders: [], spores: [], fighters: [], mutants: [], bombers: [], shots: [], wave: 0, score: 0, waveBonus: 0, nextWaveIn: 0, nextId: 1, rng: createRng(seed) };
+  return { seeders: [], spores: [], fighters: [], mutants: [], bombers: [], pests: [], shots: [], wave: 0, score: 0, waveBonus: 0, nextWaveIn: 0, skipBonus: false, nextId: 1, rng: createRng(seed), pestRng: createRng(seed ^ 0x9e57) };
 }
 
 /**
- * Advances seeders, fighters, mutants, bombers, their spores and shots, the virus and the
+ * Advances seeders, fighters, mutants, bombers, pests, their spores and shots, the virus and the
  * buildings (see `stepBuildings`) by `dt`. Seeders alive for `mutateAfter` turn into mutants. Bullets that hit an enemy are
  * removed from `bullets`; an enemy touching the craft wrecks both, and so does a fighter's
  * shot hitting it. `base` is the panel's settings; the wave's are derived
@@ -268,7 +314,8 @@ export function stepEnemies(
     enemies.nextWaveIn -= dt;
     if (enemies.nextWaveIn <= 0) {
       // Each wave survived pays for the buildings still standing.
-      const bonus = enemies.wave >= 1 ? standingBuildings(terrain) * Math.max(0, Math.round(settings.buildingBonus)) : 0;
+      const bonus = enemies.wave >= 1 && !enemies.skipBonus ? standingBuildings(terrain) * Math.max(0, Math.round(settings.buildingBonus)) : 0;
+      enemies.skipBonus = false;
       enemies.score += bonus;
       enemies.waveBonus = bonus;
       enemies.wave++;
@@ -284,6 +331,11 @@ export function stepEnemies(
       for (let k = 0; k < bombers; k++) {
         const { x, z } = spawnPoint(enemies.rng, craft, terrain);
         enemies.bombers.push(spawnBomber(enemies.nextId++, x, z, terrain, enemies.rng));
+      }
+      const pests = enemies.wave >= settings.pestsFromWave ? Math.round(Math.max(0, settings.pests)) : 0;
+      if (pests > 0) {
+        const { x, z } = spawnPoint(enemies.pestRng, craft, terrain);
+        for (let k = 0; k < pests; k++) enemies.pests.push(spawnPest(enemies.nextId++, x, z, terrain, enemies.pestRng));
       }
       enemies.nextWaveIn = WAVE_DELAY;
       events.push({ type: 'waveStarted', wave: enemies.wave, bonus });
@@ -313,6 +365,7 @@ export function stepEnemies(
     const bomb = flyBomber(b, terrain, dt, settings.bomberSpeed, enemies.rng);
     if (bomb) enemies.spores.push(bomb);
   }
+  for (const p of enemies.pests) flyPest(p, craft, terrain, dt, settings.pestSpeed, physics.maxAltitude, enemies.pestRng);
   for (const f of enemies.fighters) {
     const shot = flyFighter(f, craft, terrain, dt, settings, physics.maxAltitude, enemies.rng);
     if (shot) {
@@ -348,7 +401,8 @@ export function stepEnemies(
   events.push(...buildings.events);
   enemies.spores.push(...buildings.spores);
 
-  // Bullets and the craft against every enemy. A bomber takes several hits.
+  // Bullets and the craft against every enemy. A bomber takes several hits; a pest bites
+  // instead of wrecking the craft.
   for (const t of targets(enemies)) {
     const hit = bullets.findIndex((b) => near(terrain, b.pos, t.pos, t.radius, t.radius));
     if (hit >= 0) {
@@ -359,8 +413,14 @@ export function stepEnemies(
         continue;
       }
       events.push(killEnemy(enemies, t.id, true)!);
-    } else if (craft.status !== 'crashed' && near(terrain, craft.pos, t.pos, t.radius + CRAFT_RADIUS, t.radius)) {
-      crashCraft(craft, physics);
+    } else if (craft.status !== 'crashed' && near(terrain, craft.pos, t.pos, t.radius + CRAFT_RADIUS, Math.max(t.radius, 0.35))) {
+      if (enemies.pests.some((p) => p.id === t.id)) {
+        const fuel = Math.min(craft.fuel, Math.max(0, settings.pestDrain));
+        craft.fuel -= fuel;
+        events.push({ type: 'craftBitten', pos: { ...t.pos }, fuel });
+      } else {
+        crashCraft(craft, physics);
+      }
       events.push(killEnemy(enemies, t.id, false)!);
     }
   }

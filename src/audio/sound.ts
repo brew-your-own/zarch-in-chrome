@@ -40,7 +40,7 @@ export function attenuation(distance: number): number {
 }
 
 /** How big each kind of explosion sounds. */
-export const EXPLOSION_SIZE = { craft: 1, bomber: 0.9, fighter: 0.8, mutant: 0.75, seeder: 0.7, building: 0.6, tree: 0.35 } as const;
+export const EXPLOSION_SIZE = { craft: 1, bomber: 0.9, fighter: 0.8, mutant: 0.75, seeder: 0.7, building: 0.6, tree: 0.35, pest: 0.3 } as const;
 export type ExplosionKind = keyof typeof EXPLOSION_SIZE;
 
 /** Shape of an explosion of `size` (0-1): louder, longer and deeper as it grows. */
@@ -342,6 +342,36 @@ export class SoundEngine {
       osc.connect(gain);
       osc.start(t);
       osc.stop(t + 0.26);
+    }
+  }
+
+  /** A pest biting the craft: a quick buzz that drops away, like fuel being sucked out. */
+  bite(): void {
+    const { ctx, master } = this;
+    if (!ctx || !master) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(380, t);
+    osc.frequency.exponentialRampToValueAtTime(70, t + 0.3);
+    // A fast wobble makes it a buzz rather than a tone.
+    const buzz = ctx.createOscillator();
+    buzz.type = 'square';
+    buzz.frequency.value = 55;
+    const depth = ctx.createGain();
+    depth.gain.value = 60;
+    buzz.connect(depth).connect(osc.frequency);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1400;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.22, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+    osc.connect(lp).connect(gain).connect(master);
+    for (const o of [osc, buzz]) {
+      o.start(t);
+      o.stop(t + 0.33);
     }
   }
 

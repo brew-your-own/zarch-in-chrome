@@ -18,7 +18,7 @@ function attract(seed: number, seconds: number) {
   const enemies = createEnemies(seed);
   const arsenal = createArsenal();
   const pilot = createDemoPilot(seed);
-  const tally = { crashes: 0, kills: 0, mutantKills: 0, bomberKills: 0, mutations: 0, bombs: 0, missiles: 0, landedOnPad: 0, modes: new Set<DemoMode>(), lettersAt: [] as number[] };
+  const tally = { crashes: 0, kills: 0, mutantKills: 0, bomberKills: 0, pestKills: 0, bites: 0, mutations: 0, bombs: 0, missiles: 0, landedOnPad: 0, modes: new Set<DemoMode>(), lettersAt: [] as number[] };
   for (let step = 0; step < seconds / DT; step++) {
     const command = stepDemoPilot(pilot, craft, enemies, arsenal, terrain, physics, DEFAULT_WEAPONS, centre, DT);
     tally.modes.add(command.mode);
@@ -40,6 +40,8 @@ function attract(seed: number, seconds: number) {
       if (e.type === 'mutantDestroyed' && e.byBullet) tally.mutantKills++;
       if (e.type === 'bomberDestroyed' && e.byBullet) tally.bomberKills++;
       if (e.type === 'seederMutated') tally.mutations++;
+      if (e.type === 'pestDestroyed' && e.byBullet) tally.pestKills++;
+      if (e.type === 'craftBitten') tally.bites++;
     }
     if (!wasCrashed && craft.status === 'crashed') tally.crashes++;
     if (!wasOnPad && craft.status === 'landed' && terrain.tileTypeAt(craft.pos.x, craft.pos.z) === 'pad') tally.landedOnPad++;
@@ -67,17 +69,21 @@ describe('demo pilot', () => {
     expect([...tally.modes].sort()).toEqual(['evade', 'hunt', 'patrol', 'refuel']);
   });
 
-  it('meets mutants and bombers, and brings them down', () => {
-    const totals = { mutations: 0, mutantKills: 0, bomberKills: 0 };
+  it('meets mutants, bombers and pests, and brings them down', () => {
+    const totals = { mutations: 0, mutantKills: 0, bomberKills: 0, pestKills: 0, bites: 0 };
     for (const seed of [1, 2, 3]) {
       const { tally } = attract(seed, 240);
       totals.mutations += tally.mutations;
       totals.mutantKills += tally.mutantKills;
       totals.bomberKills += tally.bomberKills;
+      totals.pestKills += tally.pestKills;
+      totals.bites += tally.bites;
     }
     expect(totals.mutations).toBeGreaterThan(0);
     expect(totals.mutantKills).toBeGreaterThan(0);
     expect(totals.bomberKills).toBeGreaterThan(0);
+    expect(totals.pestKills).toBeGreaterThan(0);
+    expect(totals.bites).toBeGreaterThan(0); // the title shows a bite now and then
   });
 
   it('loses in the end: the virus takes the lettering, so the title loop restarts', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Bullet } from './cannon';
 import { DEFAULT_PHYSICS as P, spawnCraft } from './craft';
-import { createEnemies, DEFAULT_ENEMIES, isOverrun, nearestEnemyDistance, SEEDER_CRUISE, SEEDER_POINTS, stepEnemies, type EnemyEvent } from './enemies';
+import { createEnemies, DEFAULT_ENEMIES, isOverrun, jumpToWave, nearestEnemyDistance, SEEDER_CRUISE, SEEDER_POINTS, stepEnemies, type EnemyEvent } from './enemies';
 import { Terrain } from './terrain';
 
 const DT = 1 / 60;
@@ -91,6 +91,18 @@ describe('enemies', () => {
     expect(enemies.score).toBe(0);
   });
 
+  it('cannot wreck an invulnerable craft', () => {
+    const t = world();
+    const enemies = createEnemies(5);
+    run(DT, t, enemies);
+    const craft = spawnCraft(t);
+    craft.status = 'flying';
+    craft.invulnerable = true;
+    craft.pos = { ...enemies.seeders[0]!.pos };
+    stepEnemies(enemies, craft, [], t, DT, DEFAULT_ENEMIES, P);
+    expect(craft.status).toBe('flying');
+  });
+
   it('sends a bigger wave once one is cleared', () => {
     const t = world();
     const enemies = createEnemies(6);
@@ -99,6 +111,22 @@ describe('enemies', () => {
     run(5, t, enemies);
     expect(enemies.wave).toBe(2);
     expect(enemies.seeders).toHaveLength(DEFAULT_ENEMIES.firstWave + 1);
+  });
+
+  it('jumps straight to any wave, with its enemies and no bonus', () => {
+    const t = world();
+    const { enemies } = run(1, t);
+    const score = enemies.score;
+    jumpToWave(enemies, 5);
+    expect(enemies.seeders).toHaveLength(0);
+    const craft = spawnCraft(t);
+    const events = stepEnemies(enemies, craft, [], t, DT, DEFAULT_ENEMIES, P);
+    expect(events).toContainEqual({ type: 'waveStarted', wave: 5, bonus: 0 });
+    expect(enemies.seeders).toHaveLength(DEFAULT_ENEMIES.firstWave + 4);
+    expect(enemies.fighters).toHaveLength(Math.round(DEFAULT_ENEMIES.fighters * 4));
+    expect(enemies.bombers).toHaveLength(DEFAULT_ENEMIES.bombers);
+    expect(enemies.pests).toHaveLength(DEFAULT_ENEMIES.pests);
+    expect(enemies.score).toBe(score);
   });
 
   it('measures the nearest enemy across the wrap', () => {

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { bomberGeometry } from '../render/bomberView';
 import { fighterGeometry } from '../render/fighterView';
+import { pestGeometry } from '../render/pestView';
 import { mutantGeometry, seederGeometry } from '../render/seederView';
 import { padModel, treesModel, villageModel } from '../render/guideModels';
 import { Turntable, TURNTABLE_HEIGHT, TURNTABLE_WIDTH } from '../render/turntable';
@@ -9,6 +10,7 @@ import { RESCUE_TIME } from '../sim/buildings';
 import { SEEDER_POINTS, type EnemySettings } from '../sim/enemies';
 import { FIGHTER_POINTS } from '../sim/fighters';
 import { MUTANT_POINTS } from '../sim/mutants';
+import { PEST_POINTS } from '../sim/pests';
 
 /** Text on a card: fixed, or read from the live settings each time the guide opens. */
 type Text = string | ((e: EnemySettings) => string);
@@ -119,6 +121,17 @@ const ENEMIES: Card[] = [
     appears: (e) => (e.bombers >= 1 ? `From ${wave(e.bombersFromWave)}: ${Math.round(e.bombers)} each wave.` : 'Off: no bombers.'),
     does: 'Flies dead straight across the map, laying the virus in long lines.',
     beat: `Takes ${BOMBER_HITS} cannon hits. A homing missile or a smart bomb brings it down at once.`,
+  },
+  {
+    name: 'Pests',
+    tag: `${PEST_POINTS} pts`,
+    geometry: pestGeometry(),
+    size: 2.8,
+    shadow: 0.5,
+    pose: (t, out) => out.set(Math.sin(t * 23) * 0.12, t * 1.1, Math.sin(t * 37) * 0.3, 'YXZ'),
+    appears: (e) => (e.pests >= 1 ? `From ${wave(e.pestsFromWave)}: a swarm of ${Math.round(e.pests)} each wave.` : 'Off: no pests.'),
+    does: (e) => `Loiter low until you come near, then swarm you. Each one that reaches you bites off ${Math.round(e.pestDrain)} fuel and dies. They don't spread the virus.`,
+    beat: 'Outrun them, or turn and shoot: they fly straight at you. They keep off the pad, so land to refuel.',
   },
 ];
 

@@ -47,6 +47,7 @@ describe('sound helpers', () => {
       engine.enemyShot(3);
       engine.mutation(3);
       engine.clank(3);
+      engine.bite();
       engine.saved();
       engine.infected(3);
       engine.music(0.5, false, 1 / 60);

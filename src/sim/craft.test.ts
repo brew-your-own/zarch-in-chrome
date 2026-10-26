@@ -24,6 +24,19 @@ function airborne(terrain: Terrain, x: number, y: number, z: number): CraftState
 }
 
 describe('craft', () => {
+  it('survives anything while invulnerable', () => {
+    const t = flatWorld();
+    const hard = airborne(t, 4, 3, 4);
+    hard.invulnerable = true;
+    hard.vel = { x: 3, y: -8, z: 0 };
+    run(hard, IDLE, t, 1);
+    expect(hard.status).toBe('landed');
+    const sea = airborne(t, 4, 1, 6.5);
+    sea.invulnerable = true;
+    run(sea, IDLE, t, 1);
+    expect(sea.status).not.toBe('crashed');
+  });
+
   it('spawns landed on the pad with full fuel', () => {
     const s = spawnCraft(flatWorld());
     expect(s.status).toBe('landed');

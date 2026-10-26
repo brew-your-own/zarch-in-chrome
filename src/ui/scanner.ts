@@ -115,6 +115,13 @@ export class Scanner {
       ctx.restore();
     }
 
+    // Pests: tiny yellow specks.
+    ctx.fillStyle = '#ffd020';
+    for (const p of enemies.pests) {
+      const [x, y] = toScreen(p.pos.x, p.pos.z);
+      ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+    }
+
     // Fighters: small red darts along their heading.
     for (const f of enemies.fighters) {
       const [x, y] = toScreen(f.pos.x, f.pos.z);

@@ -25,6 +25,7 @@ html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
 .hud-value { min-width: 3em; text-align: right; }
 .fuel-bar { flex: 1; height: 12px; border: 1px solid var(--accent); background: rgba(0, 0, 0, 0.5); }
 .fuel-fill { height: 100%; background: var(--accent); }
+.fuel-fill.bitten { background: #fff; }
 .fuel-fill.low { background: var(--warn); animation: blink 0.6s steps(2, start) infinite; }
 .alert { color: var(--warn); }
 .pad-arrow { display: inline-flex; width: 20px; height: 20px; }
@@ -107,6 +108,10 @@ html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
 .toggle .hint { color: var(--muted); }
 
 .note { margin: 6px 0 0; color: var(--muted); }
+.debug.hidden { display: none; }
+.debug-row { display: flex; align-items: center; gap: 10px; }
+.debug-row input { width: 4.5em; font: inherit; background: rgba(0, 0, 0, 0.4); color: var(--text); border: 1px solid var(--line); padding: 4px 6px; }
+.debug-row .reset { margin-top: 0; }
 .note.warn { color: var(--warn); }
 
 .reset {

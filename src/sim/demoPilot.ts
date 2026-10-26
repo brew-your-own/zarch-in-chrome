@@ -38,7 +38,8 @@ export interface DemoCommand {
 
 /**
  * Enemies on the title screen: fewer, slower seeders that mutate sooner, a bomber from the
- * second wave, no fighters, and a quicker virus.
+ * second wave, a small swarm of pests with a weak bite from the third, no fighters, and a
+ * quicker virus.
  */
 export const DEMO_ENEMIES: Readonly<EnemySettings> = Object.freeze({
   ...DEFAULT_ENEMIES,
@@ -50,6 +51,9 @@ export const DEMO_ENEMIES: Readonly<EnemySettings> = Object.freeze({
   mutateAfter: 60,
   bombers: 1,
   bombersFromWave: 2,
+  pests: 3,
+  pestsFromWave: 3,
+  pestDrain: 6,
   difficultyRamp: 0.15,
 });
 
@@ -130,9 +134,14 @@ export function stepDemoPilot(
   const fromCraft = (p: { x: number; z: number }) => Math.hypot(terrain.delta(craft.pos.x, p.x), terrain.delta(craft.pos.z, p.z));
   const all = targets(enemies);
   const near = all.filter((t) => fromHome(t.pos) < LEASH);
-  // Bombers lay the most virus, so they are hunted first; otherwise the nearest, keeping the current target.
+  // Bombers lay the most virus, so they are hunted first; otherwise the nearest, keeping the
+  // current target. Pests come to the craft anyway, so they are only hunted when nothing else is
+  // about; any pest that lines up is shot at whatever the pilot is doing.
+  const isPest = (t: Target) => enemies.pests.some((p) => p.id === t.id);
   const bombers = near.filter((t) => enemies.bombers.some((b) => b.id === t.id));
-  const pool = bombers.length > 0 ? bombers : near;
+  const others = near.filter((t) => !isPest(t));
+  const pool = bombers.length > 0 ? bombers : others.length > 0 ? others : near;
+  const swat = all.some((t) => isPest(t) && wouldHit(craft, t, terrain, physics));
   let target = pool.find((t) => t.id === pilot.targetId);
   if (!target) target = pool.reduce<Target | undefined>((best, t) => (!best || fromCraft(t.pos) < fromCraft(best.pos) ? t : best), undefined);
   pilot.targetId = target?.id ?? null;
@@ -146,9 +155,9 @@ export function stepDemoPilot(
     pilot.missileIn = 8 + 8 * pilot.rng();
   }
 
-  if (!target) return command(patrol(pilot, craft, terrain, physics, home, dt), false, bomb, missile);
+  if (!target) return command(patrol(pilot, craft, terrain, physics, home, dt), swat, bomb, missile);
   const { input, fire } = hunt(craft, target, terrain, physics);
-  return command(input, fire, bomb, missile);
+  return command(input, fire || swat, bomb, missile);
 }
 
 /** Drifts between random points near home, high enough to clear what lies on the way. */

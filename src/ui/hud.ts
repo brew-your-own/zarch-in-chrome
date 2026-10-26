@@ -7,6 +7,9 @@ import type { Terrain } from '../sim/terrain';
 
 /** Fuel share below which the bar turns red and warns. */
 export const LOW_FUEL = 0.25;
+/** Seconds the status line shows a pest's bite, and the fuel bar flashes for the first part of that. */
+const BITE_SHOW = 1.5;
+const BITE_FLASH = 0.3;
 /** The virus readout turns red past this share of the game-over threshold. */
 const VIRUS_WARNING = 0.75;
 /** How long the "WAVE n" banner stays up (s). */
@@ -46,6 +49,9 @@ export class Hud {
   private readonly status: HTMLDivElement;
   private readonly banner: HTMLDivElement;
   private shownWave = 0;
+  /** Seconds left showing a pest's bite, and the fuel it took. */
+  private bitFor = 0;
+  private bitFuel = 0;
   private bannerFor = 0;
 
   constructor(root: HTMLElement, bannerParent: HTMLElement) {
@@ -77,6 +83,13 @@ export class Hud {
     this.banner = el('div', 'wave-banner', bannerParent);
   }
 
+  /** A pest bit the craft, taking `fuel`: flashes the fuel bar and says so on the status line. */
+  bitten(fuel: number): void {
+    // Bites in quick succession add up.
+    this.bitFuel = this.bitFor > 0 ? this.bitFuel + fuel : fuel;
+    this.bitFor = BITE_SHOW;
+  }
+
   update(
     craft: CraftState,
     physics: Physics,
@@ -97,6 +110,8 @@ export class Hud {
     this.fuelFill.style.width = `${fuel * 100}%`;
     this.fuelFill.classList.toggle('low', low);
     this.fuelText.textContent = `${Math.round(fuel * 100)}%`;
+    this.bitFor = Math.max(0, this.bitFor - dt);
+    this.fuelFill.classList.toggle('bitten', this.bitFor > BITE_SHOW - BITE_FLASH);
 
     const ground = terrain.heightAt(craft.pos.x, craft.pos.z);
     const speed = craft.status === 'crashed' ? 0 : Math.hypot(craft.vel.x, craft.vel.y, craft.vel.z);
@@ -134,6 +149,7 @@ export class Hud {
     const refuelling = craft.status === 'landed' && onPad && fuel < 1;
     this.status.textContent =
       craft.status === 'crashed' ? 'CRASHED'
+      : this.bitFor > 0 ? `PEST BITE  −${Math.round((this.bitFuel / physics.maxFuel) * 100)}% FUEL`
       : saving > 0 ? `SAVING BUILDING ${Math.round((saving / RESCUE_TIME) * 100)}%`
       : alert > 0 ? 'ENEMY CLOSE'
       : refuelling ? 'REFUELLING'
@@ -141,7 +157,7 @@ export class Hud {
       : autopilot.active ? 'AUTOPILOT'
       : craft.status === 'landed' ? 'LANDED'
       : '';
-    this.status.className = `hud-status${craft.status === 'crashed' || low || alert > 0 ? ' warn' : ''}`;
+    this.status.className = `hud-status${craft.status === 'crashed' || low || alert > 0 || this.bitFor > 0 ? ' warn' : ''}`;
 
     if (enemies.wave !== this.shownWave) {
       this.shownWave = enemies.wave;

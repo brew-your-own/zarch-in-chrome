@@ -10,6 +10,7 @@ import { EffectsView } from './render/effectsView';
 import { ExhaustView } from './render/exhaustView';
 import { FighterView } from './render/fighterView';
 import { MissileView } from './render/missileView';
+import { PestView } from './render/pestView';
 import { SUN } from './render/lighting';
 import { Palette } from './render/palette';
 import { SeederView } from './render/seederView';
@@ -22,7 +23,7 @@ import { createCannon, stepCannon } from './sim/cannon';
 import { spawnCraft, stepCraft } from './sim/craft';
 import { createDemoPilot, DEMO_ENEMIES, stepDemoPilot } from './sim/demoPilot';
 import { buildingBase } from './sim/buildings';
-import { buildingsLost, createEnemies, enemyCount, isOverrun, nearestEnemyDistance, stepEnemies, targets, type EnemyEvent } from './sim/enemies';
+import { buildingsLost, createEnemies, enemyCount, isOverrun, jumpToWave, nearestEnemyDistance, stepEnemies, targets, type EnemyEvent } from './sim/enemies';
 import { buildMap, findMap } from './sim/maps';
 import { createArsenal, detonateBomb, fireMissile, restock, stepMissiles, type WeaponEvent } from './sim/weapons';
 import type { Terrain } from './sim/terrain';
@@ -31,7 +32,7 @@ import { FieldGuide } from './ui/fieldGuide';
 import { GameOverScreen, recordScore, type GameOverStats } from './ui/gameOver';
 import { Hud } from './ui/hud';
 import { Scanner } from './ui/scanner';
-import { SettingsPanel } from './ui/settingsPanel';
+import { SettingsPanel, type DebugAids } from './ui/settingsPanel';
 import { TitleScreen, type ControlSignals } from './ui/titleScreen';
 
 const STEP = 1 / 60;
@@ -94,6 +95,12 @@ const TITLE_FOCUS_RATE = 1.2;
 let demoSignals: ControlSignals = {};
 /** Simulated seconds, frozen while paused; drives the seeders' spin. */
 let simTime = 0;
+/**
+ * Testing aids from the panel's Debug section. Never saved, so they are off on every page
+ * load. A game that used one, or the wave jump, doesn't count for the best score.
+ */
+const debug: DebugAids = { invulnerable: false, infiniteFuel: false };
+let debugUsed = false;
 /** Seconds of unpaused play, for cosmetic motion such as the waves. */
 let waveTime = 0;
 /** Seconds until another small splash may sound, so a shower of shards doesn't stack up. */
@@ -122,6 +129,7 @@ let bulletView: BulletView;
 let shotView: BulletView;
 let fighterView: FighterView;
 let bomberView: BomberView;
+let pestView: PestView;
 let missileView: MissileView;
 let effectsView: EffectsView;
 let seederView: SeederView;
@@ -146,6 +154,7 @@ function buildViews() {
   shotView = new BulletView(FIGHTER_TRACER);
   fighterView = new FighterView(terrain);
   bomberView = new BomberView(terrain);
+  pestView = new PestView(terrain);
   missileView = new MissileView();
   effectsView = new EffectsView(terrain);
   seederView = new SeederView(terrain);
@@ -171,6 +180,8 @@ function buildViews() {
     fighterView.fighters,
     bomberView.shadows,
     bomberView.bombers,
+    pestView.shadows,
+    pestView.pests,
     missileView.missiles,
     effectsView.shockwave,
     seederView.shadows,
@@ -187,7 +198,7 @@ buildViews();
 /** Set when the virus takes over; the sim stays frozen until a new game starts. */
 let gameOver: { stats: GameOverStats; newBest: boolean } | null = null;
 
-const showPanel = () => panel.show('paused', terrain, palette, craft.pos, targets(enemies));
+const showPanel = () => panel.show('paused', terrain, palette, craft.pos, targets(enemies), enemies.wave);
 
 /** The map picked for the next game, for the settings panel's minimap while on the title screen. */
 const previews = new Map<string, { terrain: Terrain; palette: Palette }>();
@@ -271,11 +282,13 @@ function newGame(mapId: string) {
   buildViews();
   resetMotion();
   gameOver = null;
+  debugUsed = false;
 }
 
 function endGame(reason: GameOverStats['reason']) {
   const stats = { reason, score: enemies.score, wave: enemies.wave, infected: terrain.infectedFraction() };
-  gameOver = { stats, newBest: recordScore(stats.score) };
+  // A game helped along by the debug aids doesn't count for the best score.
+  gameOver = { stats, newBest: !debugUsed && recordScore(stats.score) };
   gameOverScreen.show(gameOver.stats, gameOver.newBest);
   document.exitPointerLock();
 }
@@ -299,7 +312,7 @@ const closeTitleSettings = () => {
   titleScreen.show();
 };
 
-const panel = new SettingsPanel(overlay, settings, {
+const panel = new SettingsPanel(overlay, settings, debug, {
   onBack: closeTitleSettings,
   onResume: () => {
     sound.resume(); // a click: browsers only allow audio to start from a user gesture
@@ -308,6 +321,11 @@ const panel = new SettingsPanel(overlay, settings, {
   onQuit: enterTitle,
   onChange: () => saveSettings(settings),
   onGuide: showGuide,
+  onJumpToWave: (wave) => {
+    jumpToWave(enemies, wave);
+    debugUsed = true;
+    showPanel();
+  },
   onMapChange: (mapId) => {
     settings.mapId = mapId;
     saveSettings(settings);
@@ -453,6 +471,20 @@ function showEvent(event: EnemyEvent | WeaponEvent) {
       rig.shake(0.7, distanceFromCraft(event.bomber.pos));
       break;
     }
+    case 'pestDestroyed': {
+      // One that bit the craft just vanishes; `craftBitten` handles it.
+      if (!event.byBullet) break;
+      const { geometry, matrix } = pestView.shape(event.pest, craft.pos, simTime);
+      effectsView.explode(geometry, matrix, event.pest.vel);
+      sfx()?.explosion('pest', distanceFromCraft(event.pest.pos));
+      break;
+    }
+    case 'craftBitten':
+      effectsView.pop(nearCraft(event.pos));
+      sfx()?.bite();
+      if (mode === 'game') hud.bitten(event.fuel);
+      rig.shake(0.25);
+      break;
     case 'bomberHit':
       effectsView.pop(nearCraft(event.pos));
       sfx()?.clank(distanceFromCraft(event.pos));
@@ -575,6 +607,9 @@ function frame(now: number) {
         demoSignals.fire ||= command.fire;
         demoSignals.refuel ||= flying && command.mode === 'refuel';
       } else {
+        craft.invulnerable = debug.invulnerable;
+        if (debug.infiniteFuel) craft.fuel = physics.maxFuel;
+        if (debug.invulnerable || debug.infiniteFuel) debugUsed = true;
         // Mouse movement is ignored while landed, so every liftoff starts from a centred aim.
         if (craft.status === 'landed') input.centre();
         const wasAuto = autopilot.active;
@@ -680,6 +715,7 @@ function frame(now: number) {
   shotView.update(enemies.shots, { terrain, focus: patch });
   fighterView.update(enemies, patch, effectsDt);
   bomberView.update(enemies, patch);
+  pestView.update(enemies, patch, simTime);
   seederView.update(enemies, patch, simTime);
   const sunk = effectsView.update(effectsDt, physics.gravity);
   splashQuiet -= elapsed;

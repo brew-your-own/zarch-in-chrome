@@ -38,6 +38,8 @@ export interface CraftState {
   status: CraftStatus;
   /** Seconds left before respawning after a crash. */
   respawnIn: number;
+  /** Debug: nothing wrecks it. It flies through trees and buildings and lands however hard it comes down. */
+  invulnerable: boolean;
 }
 
 /**
@@ -103,6 +105,7 @@ export function spawnCraft(terrain: Terrain, physics: Physics = DEFAULT_PHYSICS)
     thrusting: false,
     status: 'landed',
     respawnIn: 0,
+    invulnerable: false,
   };
 }
 
@@ -203,7 +206,7 @@ export function stepCraft(
     return state;
   }
 
-  if (state.status === 'flying' && !isSafeTouchdown(state, terrain, physics)) {
+  if (state.status === 'flying' && !state.invulnerable && !isSafeTouchdown(state, terrain, physics)) {
     state.pos.y = ground;
     crashCraft(state, physics);
     return state;
@@ -220,8 +223,12 @@ export function stepCraft(
   return state;
 }
 
-/** Wrecks the craft. Keeps `vel` as the impact velocity; a crashed craft no longer moves. */
+/**
+ * Wrecks the craft, unless it is invulnerable. Keeps `vel` as the impact velocity; a crashed
+ * craft no longer moves.
+ */
 export function crashCraft(state: CraftState, physics: Physics): void {
+  if (state.invulnerable) return;
   state.status = 'crashed';
   state.respawnIn = physics.respawnDelay;
 }
