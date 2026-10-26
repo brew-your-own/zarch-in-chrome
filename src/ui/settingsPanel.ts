@@ -62,6 +62,9 @@ const GAME_SLIDERS: SliderSpec<Settings['enemies']>[] = [
   { key: 'difficultyRamp', label: 'Difficulty ramp', min: 0, max: 30, step: 1, unit: '% / wave', scale: 100 },
   { key: 'difficultyCap', label: 'Difficulty cap', min: 1, max: 4, step: 0.1, unit: '×' },
   { key: 'overrunAt', label: 'Game over at', min: 10, max: 100, step: 5, unit: '% land', scale: 100 },
+  { key: 'buildingsLostAt', label: 'Or at', min: 0, max: 100, step: 5, unit: '% buildings lost', scale: 100 },
+  { key: 'buildingFallTime', label: 'Infected building falls in', min: 3, max: 60, step: 1, unit: 's' },
+  { key: 'buildingBonus', label: 'Bonus per building', min: 0, max: 200, step: 10, unit: 'pts / wave' },
 ];
 
 const SOUND_SLIDERS: SliderSpec<Settings['sound']>[] = [
@@ -189,7 +192,7 @@ export class SettingsPanel {
     for (const spec of CANNON_SLIDERS) tuning.append(this.slider(settings.physics, spec));
     tuning.append(el('h2', undefined, 'Game'));
     for (const spec of GAME_SLIDERS) tuning.append(this.slider(settings.enemies, spec));
-    tuning.append(el('p', 'note', 'Lives apply from the next game. Each wave after the first is harder by the ramp, up to the cap.'));
+    tuning.append(el('p', 'note', 'Lives apply from the next game. Each wave after the first is harder by the ramp, up to the cap. Hover low over an infected building to save it; 0% buildings lost never ends the game.'));
     tuning.append(el('h2', undefined, 'Enemies'));
     for (const spec of ENEMY_SLIDERS) tuning.append(this.slider(settings.enemies, spec));
     tuning.append(el('p', 'note', 'A seeder left alive too long mutates and dives at you (0 turns it off). Bombers lay the virus in lines and take three hits.'));

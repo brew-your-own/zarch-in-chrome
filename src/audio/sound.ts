@@ -40,7 +40,7 @@ export function attenuation(distance: number): number {
 }
 
 /** How big each kind of explosion sounds. */
-export const EXPLOSION_SIZE = { craft: 1, bomber: 0.9, fighter: 0.8, mutant: 0.75, seeder: 0.7, tree: 0.35 } as const;
+export const EXPLOSION_SIZE = { craft: 1, bomber: 0.9, fighter: 0.8, mutant: 0.75, seeder: 0.7, building: 0.6, tree: 0.35 } as const;
 export type ExplosionKind = keyof typeof EXPLOSION_SIZE;
 
 /** Shape of an explosion of `size` (0-1): louder, longer and deeper as it grows. */
@@ -166,6 +166,47 @@ export class SoundEngine {
       osc.connect(gain).connect(master);
       osc.start(t + delay);
       osc.stop(t + delay + 0.33);
+    }
+  }
+
+  /** An infected building saved: a bright rising arpeggio. */
+  saved(): void {
+    const { ctx, master } = this;
+    if (!ctx || !master) return;
+    const t = ctx.currentTime;
+    for (const [delay, freq] of [[0, 523], [0.09, 659], [0.18, 784], [0.27, 1047]] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, t + delay);
+      gain.gain.exponentialRampToValueAtTime(0.2, t + delay + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + delay + 0.4);
+      osc.connect(gain).connect(master);
+      osc.start(t + delay);
+      osc.stop(t + delay + 0.42);
+    }
+  }
+
+  /** A building catching the virus, `distance` tiles away: a low falling two-note warning. */
+  infected(distance: number): void {
+    const { ctx, master } = this;
+    if (!ctx || !master) return;
+    const t = ctx.currentTime;
+    for (const [delay, freq] of [[0, 440], [0.18, 311]] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 1400;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, t + delay);
+      gain.gain.exponentialRampToValueAtTime(0.12 * attenuation(distance), t + delay + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + delay + 0.3);
+      osc.connect(lp).connect(gain).connect(master);
+      osc.start(t + delay);
+      osc.stop(t + delay + 0.32);
     }
   }
 

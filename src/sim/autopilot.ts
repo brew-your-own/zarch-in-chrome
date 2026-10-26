@@ -1,4 +1,5 @@
 import type { CraftInput, CraftState, Physics } from './craft';
+import { buildingHeight } from './buildings';
 import type { Terrain } from './terrain';
 import { TREE_NONE, TREE_SHAPES, treeBase, treeScale } from './trees';
 
@@ -149,8 +150,8 @@ export function steer(craft: CraftState, physics: Physics, wantVx: number, wantV
 }
 
 /**
- * Highest ground or treetop near the craft and along the route ahead, sampling every half
- * unit and checking the trees on the 3x3 tiles around each sample.
+ * Highest ground, treetop or rooftop near the craft and along the route ahead, sampling
+ * every half unit and checking the trees and buildings on the 3x3 tiles around each sample.
  */
 export function highestObstacle(terrain: Terrain, x: number, z: number, dx: number, dz: number, distance: number): number {
   const reach = Math.min(LOOKAHEAD, distance);
@@ -165,6 +166,8 @@ export function highestObstacle(terrain: Terrain, x: number, z: number, dx: numb
     const cj = Math.floor(pz);
     for (let j = cj - 1; j <= cj + 1; j++) {
       for (let i = ci - 1; i <= ci + 1; i++) {
+        const building = terrain.buildingAt(i, j);
+        if (building) top = Math.max(top, treeBase(terrain, i, j).y + buildingHeight(building));
         const kind = terrain.treeAt(i, j);
         if (kind === TREE_NONE) continue;
         top = Math.max(top, treeBase(terrain, i, j).y + TREE_SHAPES[kind].height * treeScale(terrain, i, j));

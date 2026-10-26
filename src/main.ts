@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { proximityLevel, SoundEngine } from './audio/sound';
 import { MouseInput } from './input';
 import { BomberView } from './render/bomberView';
+import { BuildingView } from './render/buildingView';
 import { BulletView, FIGHTER_TRACER } from './render/bulletView';
 import { CameraRig } from './render/cameraRig';
 import { CraftView } from './render/craftView';
@@ -20,7 +21,8 @@ import { createAutopilot, stepAutopilot, toggleAutopilot } from './sim/autopilot
 import { createCannon, stepCannon } from './sim/cannon';
 import { spawnCraft, stepCraft } from './sim/craft';
 import { createDemoPilot, DEMO_ENEMIES, stepDemoPilot } from './sim/demoPilot';
-import { createEnemies, enemyCount, isOverrun, nearestEnemyDistance, stepEnemies, targets, type EnemyEvent } from './sim/enemies';
+import { buildingBase } from './sim/buildings';
+import { buildingsLost, createEnemies, enemyCount, isOverrun, nearestEnemyDistance, stepEnemies, targets, type EnemyEvent } from './sim/enemies';
 import { buildMap, findMap } from './sim/maps';
 import { createArsenal, detonateBomb, fireMissile, restock, stepMissiles, type WeaponEvent } from './sim/weapons';
 import type { Terrain } from './sim/terrain';
@@ -115,6 +117,7 @@ let terrainView: TerrainView;
 let craftView: CraftView;
 let exhaustView: ExhaustView;
 let treeView: TreeView;
+let buildingView: BuildingView;
 let bulletView: BulletView;
 let shotView: BulletView;
 let fighterView: FighterView;
@@ -136,6 +139,7 @@ function buildViews() {
   palette = new Palette(terrain, colours, title?.letters ?? null);
   terrainView = new TerrainView(terrain, palette);
   treeView = new TreeView(terrain, palette);
+  buildingView = new BuildingView(terrain);
   craftView = new CraftView(terrain, physics);
   exhaustView = new ExhaustView(terrain, physics, plume);
   bulletView = new BulletView();
@@ -154,6 +158,8 @@ function buildViews() {
     terrainView.mesh,
     treeView.shadow,
     ...treeView.meshes,
+    buildingView.shadow,
+    ...buildingView.meshes,
     craftView.shadow,
     craftView.craft,
     exhaustView.points,
@@ -455,6 +461,22 @@ function showEvent(event: EnemyEvent | WeaponEvent) {
       effectsView.mutation(nearCraft(event.mutant.pos));
       sfx()?.mutation(distanceFromCraft(event.mutant.pos));
       break;
+    case 'buildingInfected':
+      sfx()?.infected(distanceFromCraft(buildingBase(terrain, event.building)));
+      break;
+    case 'buildingSaved':
+      effectsView.cleanse(nearCraft(buildingBase(terrain, event.building)));
+      sfx()?.saved();
+      break;
+    case 'buildingLost': {
+      const { geometry, matrix } = buildingView.shape(event.building, craft.pos);
+      const pos = buildingBase(terrain, event.building);
+      effectsView.explode(geometry, matrix, { x: 0, y: 0, z: 0 });
+      effectsView.collapse(nearCraft(pos));
+      sfx()?.explosion('building', distanceFromCraft(pos));
+      rig.shake(0.4, distanceFromCraft(pos));
+      break;
+    }
     case 'fighterFired':
       sfx()?.enemyShot(distanceFromCraft(event.pos));
       break;
@@ -614,6 +636,7 @@ function frame(now: number) {
           titleScreen.showLost(true);
         }
       } else if (isOverrun(terrain, settings.enemies)) endGame('virus');
+      else if (buildingsLost(terrain, settings.enemies)) endGame('buildings');
       else if (lives <= 0 && craft.status === 'crashed' && craft.respawnIn <= LAST_WRECK_PAUSE) endGame('lives');
     }
   }
@@ -648,6 +671,7 @@ function frame(now: number) {
   waveTime += effectsDt;
   terrainView.update(patch.x, patch.z, waveTime);
   treeView.update(patch.x, patch.z);
+  buildingView.update(patch.x, patch.z, waveTime);
   craftView.update(craft, renderPos);
   exhaustView.update(craft, craftView.craft.matrixWorld, effectsDt);
   bulletView.update(cannon.bullets);

@@ -2,6 +2,7 @@ import { autopilotReady, type AutopilotSettings, type AutopilotState } from '../
 import type { CraftState, Physics } from '../sim/craft';
 import type { Arsenal } from '../sim/weapons';
 import { enemyCount, type EnemySettings, type EnemyState } from '../sim/enemies';
+import { RESCUE_TIME, standingBuildings } from '../sim/buildings';
 import type { Terrain } from '../sim/terrain';
 
 /** Fuel share below which the bar turns red and warns. */
@@ -38,6 +39,7 @@ export class Hud {
   private readonly lives: HTMLSpanElement;
   private readonly arms: HTMLSpanElement;
   private readonly virus: HTMLDivElement;
+  private readonly homes: HTMLDivElement;
   private readonly arrow: HTMLSpanElement;
   private readonly padText: HTMLSpanElement;
   private readonly auto: HTMLSpanElement;
@@ -61,6 +63,7 @@ export class Hud {
     el('span', 'hud-label', arms).textContent = 'ARMS';
     this.arms = el('span', 'hud-arms', arms);
     this.virus = el('div', 'hud-row', root);
+    this.homes = el('div', 'hud-row', root);
     const compass = el('div', 'hud-row', root);
     el('span', 'hud-label', compass).textContent = 'PAD';
     this.arrow = el('span', 'pad-arrow', compass);
@@ -106,6 +109,12 @@ export class Hud {
     const infected = terrain.infectedFraction();
     this.virus.textContent = `VIRUS ${(infected * 100).toFixed(1)}% / ${Math.round(rules.overrunAt * 100)}%`;
     this.virus.classList.toggle('alert', infected >= rules.overrunAt * VIRUS_WARNING);
+    // Buildings standing; red while any is infected and falling.
+    const buildings = terrain.buildings;
+    this.homes.hidden = buildings.length === 0;
+    this.homes.textContent = `HOMES ${standingBuildings(terrain)}/${buildings.length}`;
+    this.homes.classList.toggle('alert', buildings.some((b) => b.status === 'infected'));
+    const saving = buildings.reduce((most, b) => (b.status === 'infected' ? Math.max(most, b.rescue) : most), 0);
 
     const { angle, distance } = padBearing(terrain, craft.pos);
     const onPad = terrain.tileTypeAt(craft.pos.x, craft.pos.z) === 'pad';
@@ -125,6 +134,7 @@ export class Hud {
     const refuelling = craft.status === 'landed' && onPad && fuel < 1;
     this.status.textContent =
       craft.status === 'crashed' ? 'CRASHED'
+      : saving > 0 ? `SAVING BUILDING ${Math.round((saving / RESCUE_TIME) * 100)}%`
       : alert > 0 ? 'ENEMY CLOSE'
       : refuelling ? 'REFUELLING'
       : low ? (fuel === 0 ? 'OUT OF FUEL' : 'LOW FUEL')
@@ -136,7 +146,13 @@ export class Hud {
     if (enemies.wave !== this.shownWave) {
       this.shownWave = enemies.wave;
       if (enemies.wave > 0) {
-        this.banner.textContent = `WAVE ${enemies.wave}`;
+        this.banner.replaceChildren(`WAVE ${enemies.wave}`);
+        if (enemies.waveBonus > 0) {
+          const bonus = document.createElement('div');
+          bonus.className = 'wave-bonus';
+          bonus.textContent = `+${enemies.waveBonus} FOR THE HOMES STANDING`;
+          this.banner.append(bonus);
+        }
         this.bannerFor = BANNER_TIME;
       }
     }

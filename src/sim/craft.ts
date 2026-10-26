@@ -1,4 +1,5 @@
 import type { Terrain } from './terrain';
+import { hitsBuilding } from './buildings';
 import { hitsTree } from './trees';
 
 export interface Vec3 {
@@ -190,7 +191,7 @@ export function stepCraft(
     state.vel.y = Math.min(0, state.vel.y);
   }
 
-  if (hitsTree(terrain, state.pos.x, state.pos.y, state.pos.z, CRAFT_RADIUS)) {
+  if (hitsTree(terrain, state.pos.x, state.pos.y, state.pos.z, CRAFT_RADIUS) || hitsBuilding(terrain, state.pos.x, state.pos.y, state.pos.z, CRAFT_RADIUS)) {
     crashCraft(state, physics);
     return state;
   }

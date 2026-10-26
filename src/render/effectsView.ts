@@ -10,6 +10,7 @@ const RAMP_SPARK = 2;
 const RAMP_SPLASH = 3;
 const RAMP_LEAVES = 4;
 const RAMP_MUTATION = 5;
+const RAMP_CLEANSE = 6;
 const RAMPS = [
   ramp(0xffffff, 0xffe060, 0xff7010, 0xa01800, 0x200000),
   ramp(0x707070, 0x505050, 0x202020),
@@ -17,6 +18,7 @@ const RAMPS = [
   ramp(0xffffff, 0xa0d0ff, 0x2449d6),
   ramp(0x80d040, 0x2a7f3e, 0x103010),
   ramp(0xffffff, 0x90ff50, 0xd8185a, 0x300010),
+  ramp(0xffffff, 0xfff4b0, 0x9fe8ff, 0x203040),
 ];
 
 /** Where splashes start: the sea's resting surface. */
@@ -125,6 +127,18 @@ export class EffectsView {
   /** A seeder mutating at `pos`: a burst of acid green and crimson sparks. */
   mutation(pos: Vec3): void {
     this.burst(new THREE.Vector3(pos.x, pos.y, pos.z), { x: 0, y: 0, z: 0 }, 50, RAMP_MUTATION, 2.5, [0.4, 0.9], 0.2);
+  }
+
+  /** A building saved from the virus at `pos`: a fountain of bright sparkles. */
+  cleanse(pos: Vec3): void {
+    this.burst(new THREE.Vector3(pos.x, pos.y + 0.3, pos.z), { x: 0, y: 0, z: 0 }, 60, RAMP_CLEANSE, 2, [0.6, 1.2], 0.6);
+  }
+
+  /** A building falling at `pos`: smoke rising from the rubble (the walls are shattered separately). */
+  collapse(pos: Vec3): void {
+    const centre = new THREE.Vector3(pos.x, pos.y, pos.z);
+    this.burst(centre, { x: 0, y: 0, z: 0 }, 30, RAMP_FIRE, 1.5, [0.3, 0.7], 0.4);
+    this.burst(centre, { x: 0, y: 0, z: 0 }, 30, RAMP_SMOKE, 0.7, [1.5, 2.8], -0.15);
   }
 
   /** A missile blowing up without a target: a small fireball. */
@@ -240,6 +254,7 @@ export class EffectsView {
       ground: { count: 8, ramp: RAMP_SPARK, up: [1, 2.5], spread: 1.5, life: [0.25, 0.5] },
       tree: { count: 10, ramp: RAMP_LEAVES, up: [0.5, 1.5], spread: 1.2, life: [0.4, 0.8] },
       sea: { count: 22, ramp: RAMP_SPLASH, up: [2, 3.8], spread: 0.9, life: [0.45, 0.8] },
+      building: { count: 6, ramp: RAMP_SPARK, up: [0.6, 1.6], spread: 1.8, life: [0.2, 0.4] },
     }[kind];
     for (let k = 0; k < settings.count; k++) {
       this.pool.spawn({

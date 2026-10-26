@@ -1,5 +1,6 @@
 import { CRAFT_RADIUS, type CraftState, type Vec3 } from './craft';
 import type { Terrain } from './terrain';
+import { hitsBuilding } from './buildings';
 import { hitsTree } from './trees';
 
 /**
@@ -154,7 +155,7 @@ function aimShot(from: Vec3, craft: CraftState, dx: number, dy: number, dz: numb
 
 export type ShotOutcome = 'flying' | 'hitCraft' | 'spent';
 
-/** Moves a shot. It is spent on hitting the ground, a tree or running out of time. */
+/** Moves a shot. It is spent on hitting the ground, a tree, a building or running out of time. */
 export function moveShot(shot: EnemyShot, craft: CraftState, terrain: Terrain, dt: number): ShotOutcome {
   // Two half steps, so a shot can't pass through the craft between frames.
   for (let half = 0; half < 2; half++) {
@@ -169,7 +170,7 @@ export function moveShot(shot: EnemyShot, craft: CraftState, terrain: Terrain, d
       }
     }
     if (shot.pos.y <= terrain.heightAt(shot.pos.x, shot.pos.z)) return 'spent';
-    if (hitsTree(terrain, shot.pos.x, shot.pos.y, shot.pos.z, 0)) return 'spent';
+    if (hitsTree(terrain, shot.pos.x, shot.pos.y, shot.pos.z, 0) || hitsBuilding(terrain, shot.pos.x, shot.pos.y, shot.pos.z, 0)) return 'spent';
   }
   shot.age += dt;
   return shot.age > SHOT_LIFE ? 'spent' : 'flying';

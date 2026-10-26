@@ -1,4 +1,5 @@
 import { crashCraft, CRAFT_RADIUS, type CraftState, type Physics, type Vec3 } from './craft';
+import { buildingsLostFraction, standingBuildings, stepBuildings, type BuildingEvent } from './buildings';
 import { BOMBER_POINTS, BOMBER_RADIUS, flyBomber, spawnBomber, type Bomber } from './bombers';
 import type { Bullet } from './cannon';
 import { FIGHTER_POINTS, FIGHTER_RADIUS, flyFighter, moveShot, spawnFighter, type EnemyShot, type Fighter } from './fighters';
@@ -38,6 +39,12 @@ export interface EnemySettings {
   bomberSpeed: number;
   /** Craft per game; losing the last one ends it. */
   lives: number;
+  /** Seconds an infected building stands before it falls (unless the craft saves it). */
+  buildingFallTime: number;
+  /** Share of the buildings (0-1) that must fall to end the game. 0 means never. */
+  buildingsLostAt: number;
+  /** Points per standing building at the start of each wave after the first. */
+  buildingBonus: number;
   /** How much harder each wave after the first gets (0.1 = 10% per wave). See `waveSettings`. */
   difficultyRamp: number;
   /** The most the ramp can multiply the difficulty by. */
@@ -60,6 +67,9 @@ export const DEFAULT_ENEMIES: Readonly<EnemySettings> = Object.freeze({
   bombersFromWave: 3,
   bomberSpeed: 2.5,
   lives: 3,
+  buildingFallTime: 15,
+  buildingsLostAt: 1,
+  buildingBonus: 50,
   difficultyRamp: 0.12,
   difficultyCap: 2.5,
 });
@@ -87,6 +97,11 @@ export function waveSettings(settings: EnemySettings, wave: number): EnemySettin
     fighterFireInterval: settings.fighterFireInterval / f,
     fighterAccuracy: Math.min(Math.max(settings.fighterAccuracy, MAX_RAMPED_ACCURACY), settings.fighterAccuracy + (f - 1) * 0.25),
   };
+}
+
+/** Whether enough buildings have fallen to end the game (never on a map without any). */
+export function buildingsLost(terrain: Terrain, settings: EnemySettings): boolean {
+  return settings.buildingsLostAt > 0 && terrain.buildings.length > 0 && buildingsLostFraction(terrain) >= settings.buildingsLostAt - 1e-9;
 }
 
 /** Whether the virus has taken over enough land to end the game. */
@@ -201,6 +216,8 @@ export interface EnemyState {
   shots: EnemyShot[];
   wave: number;
   score: number;
+  /** Points the current wave's start paid for standing buildings. */
+  waveBonus: number;
   /** Seconds until the next wave, once the current one is cleared. */
   nextWaveIn: number;
   nextId: number;
@@ -220,15 +237,17 @@ export type EnemyEvent =
   /** A fighter's shot wrecked the craft. */
   | { type: 'craftShot'; pos: Vec3 }
   | { type: 'sporeLanded'; pos: Vec3; infected: boolean }
-  | { type: 'waveStarted'; wave: number };
+  /** `bonus` is the points paid for the buildings still standing. */
+  | { type: 'waveStarted'; wave: number; bonus: number }
+  | BuildingEvent;
 
 export function createEnemies(seed: number): EnemyState {
-  return { seeders: [], spores: [], fighters: [], mutants: [], bombers: [], shots: [], wave: 0, score: 0, nextWaveIn: 0, nextId: 1, rng: createRng(seed) };
+  return { seeders: [], spores: [], fighters: [], mutants: [], bombers: [], shots: [], wave: 0, score: 0, waveBonus: 0, nextWaveIn: 0, nextId: 1, rng: createRng(seed) };
 }
 
 /**
- * Advances seeders, fighters, mutants, bombers, their spores and shots, and the virus by
- * `dt`. Seeders alive for `mutateAfter` turn into mutants. Bullets that hit an enemy are
+ * Advances seeders, fighters, mutants, bombers, their spores and shots, the virus and the
+ * buildings (see `stepBuildings`) by `dt`. Seeders alive for `mutateAfter` turn into mutants. Bullets that hit an enemy are
  * removed from `bullets`; an enemy touching the craft wrecks both, and so does a fighter's
  * shot hitting it. `base` is the panel's settings; the wave's are derived
  * from them by `waveSettings`. Returns what happened, for the renderer (explosions) and the HUD.
@@ -248,6 +267,10 @@ export function stepEnemies(
   if (enemyCount(enemies) === 0 && settings.firstWave >= 1) {
     enemies.nextWaveIn -= dt;
     if (enemies.nextWaveIn <= 0) {
+      // Each wave survived pays for the buildings still standing.
+      const bonus = enemies.wave >= 1 ? standingBuildings(terrain) * Math.max(0, Math.round(settings.buildingBonus)) : 0;
+      enemies.score += bonus;
+      enemies.waveBonus = bonus;
       enemies.wave++;
       settings = waveSettings(base, enemies.wave);
       const count = Math.round(settings.firstWave) + enemies.wave - 1;
@@ -263,7 +286,7 @@ export function stepEnemies(
         enemies.bombers.push(spawnBomber(enemies.nextId++, x, z, terrain, enemies.rng));
       }
       enemies.nextWaveIn = WAVE_DELAY;
-      events.push({ type: 'waveStarted', wave: enemies.wave });
+      events.push({ type: 'waveStarted', wave: enemies.wave, bonus });
     }
   }
 
@@ -321,6 +344,9 @@ export function stepEnemies(
   });
 
   stepVirus(terrain, settings.virusSpread, dt, enemies.rng);
+  const buildings = stepBuildings(terrain, craft, dt, settings, enemies.rng);
+  events.push(...buildings.events);
+  enemies.spores.push(...buildings.spores);
 
   // Bullets and the craft against every enemy. A bomber takes several hits.
   for (const t of targets(enemies)) {

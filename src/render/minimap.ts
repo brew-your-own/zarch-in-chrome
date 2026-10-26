@@ -6,11 +6,13 @@ import type { Palette } from './palette';
 
 /** Forest pixels show the foliage colour, darkened. */
 const CANOPY_SHADE = 0.75;
+/** Building pixels: white while standing, the virus colour while infected, dark once fallen. */
+const BUILDING_PIXEL = { standing: new THREE.Color(0xffffff), infected: new THREE.Color(0xff4080), ruin: new THREE.Color(0x302a28) };
 
 /**
  * The whole terrain as a `size` x `size` canvas, one pixel per tile, north (-z) up.
  * Colours come from `palette` (so infection and forests show); land is hill-shaded
- * and lightened with altitude.
+ * and lightened with altitude. Buildings show as single bright (or, fallen, dark) pixels.
  */
 export function terrainImage(terrain: Terrain, palette: Palette): HTMLCanvasElement {
   const n = terrain.size;
@@ -32,6 +34,8 @@ export function terrainImage(terrain: Terrain, palette: Palette): HTMLCanvasElem
         const lit = 0.55 + 0.45 * Math.max(0, nrm.x * SUN.x + nrm.y * SUN.y + nrm.z * SUN.z);
         colour.multiplyScalar(lit * (0.75 + 0.45 * altitude));
       }
+      const building = terrain.buildingAt(i, j);
+      if (building) colour.copy(BUILDING_PIXEL[building.status]);
       colour.convertLinearToSRGB();
       const o = (j * n + i) * 4;
       image.data[o] = colour.r * 255;

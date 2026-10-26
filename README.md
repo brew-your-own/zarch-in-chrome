@@ -29,6 +29,8 @@ The enemies:
 - **Fighters** join from wave 2. They circle you and shoot.
 - **Bombers** join from wave 3. They fly straight across the map, laying the virus in long lines, and take three hits to bring down.
 
+Each map has a few **villages**. When the virus reaches a building it starts to pulse red, and about 15 seconds later it falls to a ruin that keeps spreading the virus. To save it, hover low over it for two seconds: that cures it and cleans the ground around it. Every wave you survive pays a bonus for each building still standing, and if every building falls, the game is over.
+
 Each wave is a little harder than the last: enemies move and shoot faster and aim better, up to a cap.
 
 The settings panel, opened from the title screen or by pausing, has the map picker and lets you tune physics, enemies, difficulty, weapons, lives, colours, sound and music. Settings are saved in your browser.

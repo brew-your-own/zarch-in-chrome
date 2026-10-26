@@ -28,7 +28,7 @@ describe('enemies', () => {
     const { enemies, events, craft } = run(DT, t);
     expect(enemies.wave).toBe(1);
     expect(enemies.seeders).toHaveLength(DEFAULT_ENEMIES.firstWave);
-    expect(events).toContainEqual({ type: 'waveStarted', wave: 1 });
+    expect(events).toContainEqual({ type: 'waveStarted', wave: 1, bonus: 0 });
     for (const s of enemies.seeders) {
       expect(Math.hypot(t.delta(craft.pos.x, s.pos.x), t.delta(craft.pos.z, s.pos.z))).toBeGreaterThanOrEqual(16);
     }

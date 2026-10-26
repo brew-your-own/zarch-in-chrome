@@ -22,8 +22,8 @@ export function recordScore(score: number): boolean {
 }
 
 export interface GameOverStats {
-  /** What ended the game: the virus took over, or the last craft was lost. */
-  reason: 'virus' | 'lives';
+  /** What ended the game: the virus took over, the villages fell, or the last craft was lost. */
+  reason: 'virus' | 'buildings' | 'lives';
   score: number;
   wave: number;
   infected: number;
@@ -36,7 +36,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
   return node;
 }
 
-/** The end screen, shown when the virus takes over or the last life is lost. */
+/** The end screen, shown when the virus takes over, the villages fall or the last life is lost. */
 export class GameOverScreen {
   private readonly stats = el('div', 'gameover-stats');
   private readonly best = el('p', 'gameover-best');
@@ -59,7 +59,10 @@ export class GameOverScreen {
   }
 
   show({ reason, score, wave, infected }: GameOverStats, newBest: boolean): void {
-    this.reason.textContent = reason === 'virus' ? 'The virus has taken over the land.' : 'Your last craft has been destroyed.';
+    this.reason.textContent =
+      reason === 'virus' ? 'The virus has taken over the land.'
+      : reason === 'buildings' ? 'The virus has taken every village.'
+      : 'Your last craft has been destroyed.';
     this.stats.replaceChildren(
       ...[
         ['SCORE', String(score)],

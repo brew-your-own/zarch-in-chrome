@@ -1,3 +1,4 @@
+import { placeVillages, type Building } from './buildings';
 import { valueNoise } from './noise';
 import { createRng } from './rng';
 import { plantTrees, type TreeKind } from './trees';
@@ -25,12 +26,16 @@ const mod = (a: number, n: number) => ((a % n) + n) % n;
  * Each tile is split into two triangles along the (0,0)-(1,1) diagonal;
  * `heightAt` and the renderer must agree on this split.
  *
- * Each tile can also hold one tree (see `trees.ts`), stored per tile in `trees`,
- * and be infected by the virus (see `virus.ts`), stored per tile in `infection`.
+ * Each tile can also hold one tree (see `trees.ts`), stored per tile in `trees`, or one
+ * building (see `buildings.ts`), listed in `buildings`, and be infected by the virus
+ * (see `virus.ts`), stored per tile in `infection`.
  */
 export class Terrain {
   readonly trees: Uint8Array;
   readonly infection: Uint8Array;
+  readonly buildings: Building[] = [];
+  /** Per tile, 1 + the index in `buildings` of the building there, or 0. */
+  private readonly buildingIndex: Uint16Array;
   /** Number of infected tiles. */
   infectedCount = 0;
   private landTiles = -1;
@@ -45,6 +50,7 @@ export class Terrain {
     }
     this.trees = new Uint8Array(size * size);
     this.infection = new Uint8Array(size * size);
+    this.buildingIndex = new Uint16Array(size * size);
   }
 
   /** Wraps a world coordinate into [0, size). */
@@ -73,6 +79,25 @@ export class Terrain {
     this.infection[mod(j, this.size) * this.size + mod(i, this.size)] = 1;
     this.infectedCount++;
     return true;
+  }
+
+  /** Clears the virus from tile (i, j), if it had it. */
+  disinfect(i: number, j: number): void {
+    const k = mod(j, this.size) * this.size + mod(i, this.size);
+    if (this.infection[k] !== 1) return;
+    this.infection[k] = 0;
+    this.infectedCount--;
+  }
+
+  /** The building on tile (i, j), if any. */
+  buildingAt(i: number, j: number): Building | undefined {
+    const k = this.buildingIndex[mod(j, this.size) * this.size + mod(i, this.size)]!;
+    return k === 0 ? undefined : this.buildings[k - 1];
+  }
+
+  addBuilding(b: Building): void {
+    this.buildings.push(b);
+    this.buildingIndex[mod(b.j, this.size) * this.size + mod(b.i, this.size)] = this.buildings.length;
   }
 
   /** Share of land tiles infected, 0-1. */
@@ -182,17 +207,19 @@ export interface TerrainOptions {
   roughness?: number;
   /** How thickly forests grow, 0-1. 0 means no trees. */
   treeDensity?: number;
+  /** Villages to build (fewer if the land has no room). */
+  villages?: number;
 }
 
 /** Noise cell sizes in tiles, coarsest first. */
 const OCTAVE_CELLS = [16, 8, 4];
 
 /**
- * Seeded, wrapping value-noise landscape with a flat launch pad in the middle and forests.
+ * Seeded, wrapping value-noise landscape with a flat launch pad in the middle, forests and villages.
  * The same seed always produces the same terrain.
  */
 export function generateTerrain(seed: number, options: TerrainOptions = {}): Terrain {
-  const { size = 64, amplitude = 4, seaBias = 0.35, roughness = 0.5, treeDensity = 0.5 } = options;
+  const { size = 64, amplitude = 4, seaBias = 0.35, roughness = 0.5, treeDensity = 0.5, villages = 4 } = options;
   const rng = createRng(seed);
   const heights = new Float32Array(size * size);
   const octaves = OCTAVE_CELLS.map((cell, k) => ({ cell, weight: roughness ** k }));
@@ -220,5 +247,6 @@ export function generateTerrain(seed: number, options: TerrainOptions = {}): Ter
 
   const terrain = new Terrain(size, heights, pad);
   plantTrees(terrain, seed, treeDensity);
+  placeVillages(terrain, seed, villages);
   return terrain;
 }

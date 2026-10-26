@@ -1,3 +1,5 @@
+import { buildVillage } from './buildings';
+import { createRng } from './rng';
 import { generateTerrain, type Terrain } from './terrain';
 import { TREE_NONE } from './trees';
 
@@ -25,6 +27,10 @@ const SEED = 1987;
 const PLINTH_RISE = 0.8;
 /** Letter tiles are raised this much more, so their edges catch the light. */
 const EMBOSS = 0.35;
+/** A small village this far east and south of the pad's corner, where the camera sees it. */
+const VILLAGE_EAST = 6;
+const VILLAGE_SOUTH = 3;
+const VILLAGE_SIZE = 4;
 /** Tiles of plinth around the letters. */
 const MARGIN = 1;
 const LETTER = 1;
@@ -52,10 +58,10 @@ function lit(x: number, y: number): boolean {
 /**
  * The title screen's world: a small, gentle map with the word ZARCH written on a raised
  * plinth north of the launch pad, so the camera sees it over the craft. Trees are cleared
- * from the plinth and the ground just around it.
+ * from the plinth and the ground just around it. A small village stands south-east of the pad.
  */
 export function buildTitleMap(): TitleMap {
-  const terrain = generateTerrain(SEED, { size: SIZE, amplitude: 3, seaBias: 0.3, treeDensity: 0.6 });
+  const terrain = generateTerrain(SEED, { size: SIZE, amplitude: 3, seaBias: 0.3, treeDensity: 0.6, villages: 0 });
   const n = terrain.size;
   const letters = new Uint8Array(n * n);
   // The word sits centred on the pad's x, a few rows clear of the pad's north edge.
@@ -85,6 +91,8 @@ export function buildTitleMap(): TitleMap {
   }
   for (let j = vj0; j < vj1; j++) for (let i = vi0; i < vi1; i++) if (letters[j * n + i] === 0) letters[j * n + i] = PLINTH;
   for (let j = vj0 - 1; j <= vj1; j++) for (let i = vi0 - 1; i <= vi1; i++) terrain.setTree(i, j, TREE_NONE);
+
+  buildVillage(terrain, terrain.pad.i + terrain.pad.w + VILLAGE_EAST, terrain.pad.j + VILLAGE_SOUTH, VILLAGE_SIZE, createRng(SEED));
 
   return { terrain, letters, centre: { x: i0 + TITLE_WIDTH / 2, y: plinth, z: j0 + TITLE_DEPTH / 2 } };
 }

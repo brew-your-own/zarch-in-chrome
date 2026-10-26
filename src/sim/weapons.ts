@@ -1,6 +1,7 @@
 import { noseDirection, type CraftState, type Physics, type Vec3 } from './craft';
 import { killEnemy, targets, type EnemyEvent, type EnemyState } from './enemies';
 import type { Terrain } from './terrain';
+import { hitsBuilding } from './buildings';
 import { hitsTree } from './trees';
 
 /** Special weapons, edited live from the settings panel. */
@@ -193,7 +194,8 @@ export function stepMissiles(
         events.push(hit);
         return false;
       }
-      if (m.pos.y <= terrain.heightAt(m.pos.x, m.pos.z) || hitsTree(terrain, m.pos.x, m.pos.y, m.pos.z, 0)) {
+      const { x, y, z } = m.pos;
+      if (y <= terrain.heightAt(x, z) || hitsTree(terrain, x, y, z, 0) || hitsBuilding(terrain, x, y, z, 0)) {
         events.push({ type: 'missileSpent', pos: { ...m.pos } });
         return false;
       }

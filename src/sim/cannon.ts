@@ -1,4 +1,5 @@
 import { noseDirection, thrustDirection, type CraftState, type Physics, type Vec3 } from './craft';
+import { hitsBuilding } from './buildings';
 import type { Terrain } from './terrain';
 import { TREE_NONE, treeHit, type TreeKind } from './trees';
 
@@ -16,7 +17,7 @@ export interface CannonState {
   shots: number;
 }
 
-export type ImpactKind = 'ground' | 'sea' | 'tree';
+export type ImpactKind = 'ground' | 'sea' | 'tree' | 'building';
 
 /** Where a bullet stopped, so the renderer can show a spark or splash. */
 export interface Impact {
@@ -40,7 +41,8 @@ export function createCannon(): CannonState {
 
 /**
  * Fires while `fire` is held (not while crashed) and moves every bullet, removing those
- * that hit the terrain or a tree, or outlive `physics.bulletLife`. Bullets fly straight,
+ * that hit the terrain, a tree or a building, or outlive `physics.bulletLife`. Buildings
+ * stop bullets unharmed. Bullets fly straight,
  * inheriting the craft's velocity. A tree hit by a bullet is destroyed: it is removed
  * from the terrain. Returns this step's impacts.
  */
@@ -107,5 +109,6 @@ function collide(b: Bullet, terrain: Terrain): Impact | null {
     return { pos: b.pos, vel: b.vel, kind: terrain.tileTypeAt(b.pos.x, b.pos.z) === 'sea' ? 'sea' : 'ground' };
   }
   const tree = treeHit(terrain, b.pos.x, b.pos.y, b.pos.z, BULLET_RADIUS);
-  return tree ? { pos: b.pos, vel: b.vel, kind: 'tree', tree } : null;
+  if (tree) return { pos: b.pos, vel: b.vel, kind: 'tree', tree };
+  return hitsBuilding(terrain, b.pos.x, b.pos.y, b.pos.z, BULLET_RADIUS) ? { pos: b.pos, vel: b.vel, kind: 'building' } : null;
 }

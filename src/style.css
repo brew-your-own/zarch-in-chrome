@@ -51,6 +51,7 @@ html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   text-shadow: 3px 3px #000; opacity: 0; transition: opacity 0.4s;
 }
 .wave-banner.visible { opacity: 1; }
+.wave-bonus { margin-top: 6px; font-size: 18px; letter-spacing: 0.15em; color: var(--text); }
 
 #overlay, #guide {
   position: fixed; inset: 0; overflow-y: auto; display: flex; padding: 24px 16px;
