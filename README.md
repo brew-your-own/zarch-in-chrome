@@ -6,7 +6,7 @@ A browser tribute to **Zarch** (David Braben, Acorn Archimedes, 1987), later por
 
 ![The title screen: the word ZARCH written into the landscape, half eaten by the crimson virus, with the demo craft fighting over it](docs/title-screen.png)
 
-The title screen plays the game by itself: a computer pilot defends the word ZARCH, written into the landscape, while the virus slowly eats it. The controls light up as the pilot uses them. Press **Fly** to take over, pick a map with the arrows, or open **Guide** for a field guide to the land and the enemies you'll be fighting.
+The title screen plays the game by itself: a computer pilot defends the word ZARCH, written into the landscape, while the virus slowly eats it. The controls light up as the pilot uses them. Press **Fly** to take over, pick one of six maps with the arrows, read **How to play** (it also comes up before your first game), or open **Guide** for a field guide to the land and the enemies you'll be fighting.
 
 ## Controls
 

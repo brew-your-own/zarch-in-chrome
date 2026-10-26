@@ -159,7 +159,8 @@ export function placeVillages(terrain: Terrain, seed: number, villages: number):
     const j = Math.floor(rng() * terrain.size);
     const count = 3 + Math.floor(rng() * 4);
     if (!buildable(terrain, i, j)) continue;
-    if (Math.hypot(terrain.delta(pad.x, i + 0.5), terrain.delta(pad.z, j + 0.5)) < PAD_DISTANCE) continue;
+    // Every building, not just the centre, stays `PAD_DISTANCE` from the pad.
+    if (Math.hypot(terrain.delta(pad.x, i + 0.5), terrain.delta(pad.z, j + 0.5)) < PAD_DISTANCE + VILLAGE_RADIUS) continue;
     if (centres.some((c) => Math.hypot(terrain.delta(c.i, i), terrain.delta(c.j, j)) < VILLAGE_SPACING)) continue;
     // A village needs room for at least three.
     if (buildVillage(terrain, i, j, count, rng, 3) > 0) centres.push({ i, j });

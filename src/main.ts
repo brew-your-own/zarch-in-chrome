@@ -29,6 +29,7 @@ import { createArsenal, detonateBomb, fireMissile, restock, stepMissiles, type W
 import type { Terrain } from './sim/terrain';
 import { buildTitleMap, lettersInfected, type TitleMap } from './sim/titleMap';
 import { FieldGuide } from './ui/fieldGuide';
+import { HowToPlay, howToPlaySeen } from './ui/howToPlay';
 import { GameOverScreen, recordScore, type GameOverStats } from './ui/gameOver';
 import { Hud } from './ui/hud';
 import { Scanner } from './ui/scanner';
@@ -254,6 +255,7 @@ function enterTitle() {
   hudColumn.classList.add('hidden');
   panel.hide();
   guide.hide();
+  howTo.hide();
   gameOverScreen.hide();
   titleScreen.show();
 }
@@ -307,6 +309,31 @@ function showGuide() {
   guide.show();
 }
 
+/**
+ * How to play: shown before the first game in this browser (its Fly starts the game), and
+ * from the title screen's button. Back returns to the title screen.
+ */
+const howTo = new HowToPlay(document.querySelector<HTMLDivElement>('#howto')!, settings, {
+  onBack: () => closeHowTo(),
+  onFly: () => {
+    howTo.hide();
+    startGame();
+  },
+});
+function closeHowTo() {
+  howTo.hide();
+  if (mode === 'title') titleScreen.show();
+}
+function showHowTo() {
+  titleScreen.hide();
+  howTo.show();
+}
+/** Fly from the title: the first time, by way of how to play. */
+function fly() {
+  if (howToPlaySeen()) startGame();
+  else showHowTo();
+}
+
 const closeTitleSettings = () => {
   panel.hide();
   titleScreen.show();
@@ -349,9 +376,10 @@ const gameOverScreen = new GameOverScreen(document.querySelector<HTMLDivElement>
 });
 
 const titleScreen = new TitleScreen(document.querySelector<HTMLDivElement>('#title')!, () => settings.mapId, {
-  onFly: startGame,
+  onFly: fly,
   onSettings: showTitleSettings,
   onGuide: showGuide,
+  onHowTo: showHowTo,
   onMapChange: (mapId) => {
     settings.mapId = mapId;
     saveSettings(settings);
@@ -361,9 +389,10 @@ const titleScreen = new TitleScreen(document.querySelector<HTMLDivElement>('#tit
 // R engages auto-refuel (once per wave), or hands control back if it is flying.
 // Space sets off a smart bomb; E fires a homing missile (as does the middle button).
 document.addEventListener('keydown', (e) => {
-  // Esc closes the field guide, or the settings opened from the title (in a game, Esc
+  // Esc closes the field guide, how to play, or the settings opened from the title (in a game, Esc
   // releases the pointer, which pauses).
   if (e.code === 'Escape' && guide.visible) closeGuide();
+  else if (e.code === 'Escape' && howTo.visible) closeHowTo();
   else if (e.code === 'Escape' && panel.visible && panel.openedFrom === 'title') closeTitleSettings();
   if (e.repeat || !input.locked || gameOver || mode !== 'game') return;
   if (e.code === 'KeyR') {

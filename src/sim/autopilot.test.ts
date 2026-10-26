@@ -4,6 +4,7 @@ import { CRAFT_RADIUS, DEFAULT_PHYSICS as P, spawnCraft, stepCraft, type CraftSt
 import { buildMap, MAPS } from './maps';
 import { createRng } from './rng';
 import type { Terrain } from './terrain';
+import { hitsBuilding } from './buildings';
 import { hitsTree } from './trees';
 
 const DT = 1 / 60;
@@ -23,7 +24,7 @@ function autoFly(craft: CraftState, terrain: Terrain, limit = 90) {
   return { craft, seconds: t, crashed, stillActive: ap.active };
 }
 
-/** Land tiles across the map where the craft can sit without touching a tree. */
+/** Land tiles across the map where the craft can sit without touching a tree or a building. */
 function startTiles(terrain: Terrain, count: number, seed: number): { x: number; z: number }[] {
   const rng = createRng(seed);
   const out: { x: number; z: number }[] = [];
@@ -32,6 +33,7 @@ function startTiles(terrain: Terrain, count: number, seed: number): { x: number;
     const z = Math.floor(rng() * terrain.size) + 0.5;
     if (terrain.tileTypeAt(x, z) !== 'land') continue;
     if (hitsTree(terrain, x, terrain.heightAt(x, z), z, CRAFT_RADIUS)) continue;
+    if (hitsBuilding(terrain, x, terrain.heightAt(x, z), z, CRAFT_RADIUS)) continue;
     out.push({ x, z });
   }
   return out;

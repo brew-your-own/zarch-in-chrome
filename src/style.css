@@ -54,12 +54,12 @@ html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
 .wave-banner.visible { opacity: 1; }
 .wave-bonus { margin-top: 6px; font-size: 18px; letter-spacing: 0.15em; color: var(--text); }
 
-#overlay, #guide {
+#overlay, #guide, #howto {
   position: fixed; inset: 0; overflow-y: auto; display: flex; padding: 24px 16px;
   box-sizing: border-box; background: rgba(0, 0, 0, 0.5);
   font: 13px/1.4 monospace; color: var(--text);
 }
-#overlay.hidden, #guide.hidden, #gameover.hidden, #title.hidden, #hud-column.hidden { display: none; }
+#overlay.hidden, #guide.hidden, #howto.hidden, #gameover.hidden, #title.hidden, #hud-column.hidden { display: none; }
 .panel button.hidden { display: none; }
 
 .panel {
@@ -130,7 +130,14 @@ html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
 .preset.selected { color: #000; background: var(--accent); border-color: var(--accent); }
 
 /* Field guide: a card per thing in the world, its model turning in a picture beside the text. */
-#guide { background: rgba(0, 0, 0, 0.65); }
+#guide, #howto { background: rgba(0, 0, 0, 0.65); }
+/* How to play: a card per topic, with the keys drawn as chips. */
+.howto-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 18px; }
+@media (max-width: 720px) { .howto-cards { grid-template-columns: 1fr; } }
+.howto-card { padding: 10px 12px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.35); }
+.howto-card h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--accent); }
+.howto-card p { margin: 0 0 6px; }
+.howto-card kbd { font: bold 12px monospace; padding: 1px 6px; border: 1px solid var(--line); border-radius: 3px; background: rgba(0, 0, 0, 0.5); color: var(--accent); }
 .guide-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .panel h2.guide-section { margin-top: 22px; }
 @media (max-width: 720px) { .guide-cards { grid-template-columns: 1fr; } }

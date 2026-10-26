@@ -34,6 +34,7 @@ export interface TitleHandlers {
   onFly: () => void;
   onSettings: () => void;
   onGuide: () => void;
+  onHowTo: () => void;
   onMapChange: (mapId: string) => void;
 }
 
@@ -61,7 +62,7 @@ export class TitleScreen {
     tag.append('After ', wiki, ' by David Braben, Acorn Archimedes, 1987');
 
     const goal = el('p', 'title-goal');
-    goal.append('Shoot the seeders before their ', el('span', 'title-virus', 'virus'), ' takes the land.');
+    goal.append('Shoot the seeders before their ', el('span', 'title-virus', 'virus'), ' takes the land, and save the villages it reaches.');
 
     const keys = el('div', 'title-keys');
     for (const { id, key, label } of CONTROLS) {
@@ -77,8 +78,10 @@ export class TitleScreen {
     settings.addEventListener('click', handlers.onSettings);
     const guide = el('button', 'reset', 'Guide');
     guide.addEventListener('click', handlers.onGuide);
+    const howTo = el('button', 'reset', 'How to play');
+    howTo.addEventListener('click', handlers.onHowTo);
     const buttons = el('div', 'title-buttons');
-    buttons.append(fly, settings, guide);
+    buttons.append(fly, howTo, settings, guide);
 
     const step = (by: number) => {
       const k = MAPS.findIndex((m) => m.id === this.mapId());
