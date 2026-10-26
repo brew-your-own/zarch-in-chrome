@@ -10,6 +10,7 @@ import { DEFAULT_WEAPONS } from '../sim/weapons';
 import { buildMap, MAPS } from '../sim/maps';
 import type { Terrain } from '../sim/terrain';
 import type { Settings } from '../settings';
+import { githubLink } from './github';
 
 const DEG = 180 / Math.PI;
 
@@ -150,7 +151,7 @@ export class SettingsPanel {
     const header = el('header');
     this.primary.addEventListener('click', () => (this.context === 'title' ? handlers.onBack() : handlers.onResume()));
     this.quit.addEventListener('click', handlers.onQuit);
-    header.append(el('h1', undefined, 'ZARCH'), this.status, this.quit, this.primary);
+    header.append(el('h1', undefined, 'ZARCH'), this.status, this.quit, this.primary, githubLink('panel-github'));
 
     const mapSection = el('section');
     this.minimap.width = this.minimap.height = 256;

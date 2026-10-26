@@ -1,5 +1,6 @@
 import { findMap, MAPS } from '../sim/maps';
 import { loadBest } from './gameOver';
+import { githubLink } from './github';
 
 /** The controls the title screen names, in the order shown. */
 const CONTROLS = [
@@ -94,7 +95,7 @@ export class TitleScreen {
 
     const bottom = el('div', 'title-bottom');
     bottom.append(goal, keys, buttons, meta);
-    root.append(tag, this.lost, bottom);
+    root.append(tag, this.lost, bottom, githubLink('title-github'));
     this.refresh();
   }
 

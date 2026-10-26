@@ -146,6 +146,12 @@ html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
 }
 #title button { pointer-events: auto; font: inherit; cursor: pointer; }
 .title-tag a { pointer-events: auto; color: var(--accent); }
+/* The GitHub mark: in the title screen's top-right corner, and at the end of the panel's header. */
+.github { display: inline-flex; color: var(--muted); transition: color 0.15s; }
+.github:hover, .github:focus-visible { color: var(--accent); }
+.github svg { width: 100%; height: 100%; }
+.title-github { position: absolute; top: 12px; right: 16px; width: 28px; height: 28px; pointer-events: auto; }
+.panel-github { width: 24px; height: 24px; }
 .title-tag { margin: 0; text-align: center; color: var(--muted); letter-spacing: 0.08em; }
 .title-lost {
   margin: 0; text-align: center; font: bold 36px monospace; letter-spacing: 0.2em; color: #ff3c7a;

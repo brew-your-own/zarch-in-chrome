@@ -30,6 +30,8 @@ The settings panel, opened from the title screen or by pausing, has the map pick
 
 Built with Vite, TypeScript and Three.js. Everything, including the sound and music, is generated in code: there are no asset files.
 
+All the code was written by [Claude Code](https://claude.com/claude-code), guided by the prompts listed in [PROMPTS.md](PROMPTS.md). The first session built the whole game, from an empty folder to smart bombs and homing missiles, in about 4 hours 30 minutes. Claude was working for about 1 hour 20 minutes of that; the rest was the time between prompts.
+
 ```sh
 npm install
 npm run dev      # http://localhost:5173
