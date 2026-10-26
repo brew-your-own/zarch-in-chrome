@@ -1,4 +1,5 @@
 import { autopilotInput, CLEARANCE, highestObstacle, steer } from './autopilot';
+import { buildingBase, buildingHeight, RESCUE_HEIGHT, RESCUE_TIME, type Building } from './buildings';
 import { noseDirection, type CraftInput, type CraftState, type Physics } from './craft';
 import { DEFAULT_ENEMIES, enemyCount, targets, type EnemySettings, type EnemyState, type Target } from './enemies';
 import { createRng } from './rng';
@@ -8,11 +9,11 @@ import type { Arsenal, WeaponSettings } from './weapons';
 /**
  * The title screen's computer pilot. It guards the area around `home` (the title lettering):
  * it hunts enemies that come within `LEASH` of it, bombers first, hovers about while there
- * are none, sidesteps a mutant's dive, and flies back to the pad to refuel when low or
- * between waves. It uses every control the player has, so the title screen can show each
+ * are none, sidesteps a mutant's dive, saves infected buildings nearby by hovering over them,
+ * and flies back to the pad to refuel when low or between waves. It uses every control the player has, so the title screen can show each
  * one as it happens.
  */
-export type DemoMode = 'patrol' | 'hunt' | 'evade' | 'refuel';
+export type DemoMode = 'patrol' | 'hunt' | 'evade' | 'rescue' | 'refuel';
 
 export interface DemoPilot {
   mode: DemoMode;
@@ -88,6 +89,15 @@ const EVADE_RANGE = 12;
 const EVADE_SPEED = 5;
 const RUN_LEASH = 9;
 const RUN_LEAN = (35 * Math.PI) / 180;
+/**
+ * Infected buildings within this distance of home are saved, if the pilot can get there
+ * (at about `RESCUE_SPEED`) and hover `RESCUE_TIME` before they fall. It hovers this far
+ * above the roof, and settles once within `OVER_BUILDING` of it.
+ */
+const RESCUE_LEASH = 18;
+const RESCUE_SPEED = 4;
+const ROOF_CLEARANCE = 0.7;
+const OVER_BUILDING = 0.8;
 
 export function createDemoPilot(seed: number): DemoPilot {
   return { mode: 'refuel', targetId: null, patrol: { x: 0, z: 0 }, patrolIn: 0, missileIn: 6, run: null, rng: createRng(seed) };
@@ -113,9 +123,13 @@ export function stepDemoPilot(
   }
 
   // Refuel when low, and wait on the pad between waves.
+  // A building to save comes before waiting on the pad, but not before refuelling when low.
   const onPad = craft.status === 'landed' && terrain.tileTypeAt(craft.pos.x, craft.pos.z) === 'pad';
   const none = enemyCount(enemies) === 0;
-  if (craft.fuel < LOW_FUEL * physics.maxFuel || none) pilot.mode = 'refuel';
+  const low = craft.fuel < LOW_FUEL * physics.maxFuel;
+  const saving = low ? null : buildingToSave(craft, terrain, home);
+  if (low || (none && !saving)) pilot.mode = 'refuel';
+  else if (saving) pilot.mode = 'rescue';
   if (pilot.mode === 'refuel') {
     if (!onPad) return command(autopilotInput(craft, terrain, physics));
     if (craft.fuel < FULL * physics.maxFuel || none) return command(IDLE);
@@ -130,9 +144,14 @@ export function stepDemoPilot(
     return command(evading.input, evading.fire);
   }
 
+  const all = targets(enemies);
+  if (saving) {
+    pilot.mode = 'rescue';
+    return command(rescue(craft, saving, terrain, physics), all.some((t) => wouldHit(craft, t, terrain, physics)));
+  }
+
   const fromHome = (p: { x: number; z: number }) => Math.hypot(terrain.delta(home.x, p.x), terrain.delta(home.z, p.z));
   const fromCraft = (p: { x: number; z: number }) => Math.hypot(terrain.delta(craft.pos.x, p.x), terrain.delta(craft.pos.z, p.z));
-  const all = targets(enemies);
   const near = all.filter((t) => fromHome(t.pos) < LEASH);
   // Bombers lay the most virus, so they are hunted first; otherwise the nearest, keeping the
   // current target. Pests come to the craft anyway, so they are only hunted when nothing else is
@@ -179,6 +198,51 @@ function patrol(pilot: DemoPilot, craft: CraftState, terrain: Terrain, physics: 
   const ux = distance > 1e-6 ? dx / distance : 0;
   const uz = distance > 1e-6 ? dz / distance : 0;
   return steer(craft, physics, ux * speed, climb(craft, cruise), uz * speed);
+}
+
+/**
+ * The infected building near home the pilot should save: the nearest one it can reach and
+ * hover over before it falls. Null if there is none.
+ */
+function buildingToSave(craft: CraftState, terrain: Terrain, home: { x: number; z: number }): Building | null {
+  let best: Building | null = null;
+  let bestDistance = Infinity;
+  for (const b of terrain.buildings) {
+    if (b.status !== 'infected') continue;
+    const base = buildingBase(terrain, b);
+    if (Math.hypot(terrain.delta(home.x, base.x), terrain.delta(home.z, base.z)) > RESCUE_LEASH) continue;
+    const distance = Math.hypot(terrain.delta(craft.pos.x, base.x), terrain.delta(craft.pos.z, base.z));
+    if (b.timer < distance / RESCUE_SPEED + RESCUE_TIME - b.rescue + 0.5) continue;
+    if (distance < bestDistance) {
+      best = b;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+/**
+ * Flies to the building clear of what lies on the way, then settles just above its roof,
+ * low enough to save it, and holds still there.
+ */
+function rescue(craft: CraftState, b: Building, terrain: Terrain, physics: Physics): CraftInput {
+  const base = buildingBase(terrain, b);
+  const dx = terrain.delta(craft.pos.x, base.x);
+  const dz = terrain.delta(craft.pos.z, base.z);
+  const distance = Math.hypot(dx, dz);
+  const speed = Math.min(RESCUE_SPEED, distance * 1.2);
+  const ux = distance > 1e-6 ? dx / distance : 0;
+  const uz = distance > 1e-6 ? dz / distance : 0;
+  let y: number;
+  if (distance > OVER_BUILDING) {
+    y = highestObstacle(terrain, craft.pos.x, craft.pos.z, dx, dz, distance) + CLEARANCE;
+  } else {
+    // Over it: clear of the roof and anything else close by, but under the rescue height.
+    const nearby = highestObstacle(terrain, craft.pos.x, craft.pos.z, 0, 0, 0) + 0.4;
+    const ceiling = terrain.heightAt(craft.pos.x, craft.pos.z) + RESCUE_HEIGHT - 0.4;
+    y = Math.min(ceiling, Math.max(base.y + buildingHeight(b) + ROOF_CLEARANCE, nearby));
+  }
+  return steer(craft, physics, ux * speed, climb(craft, y), uz * speed, APPROACH_LEAN);
 }
 
 /**

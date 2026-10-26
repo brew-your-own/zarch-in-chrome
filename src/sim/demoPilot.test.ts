@@ -3,6 +3,7 @@ import { createCannon, stepCannon } from './cannon';
 import { DEFAULT_PHYSICS, spawnCraft, stepCraft, type CraftState } from './craft';
 import { createDemoPilot, DEMO_ENEMIES, stepDemoPilot, wouldHit, type DemoMode } from './demoPilot';
 import { createEnemies, SEEDER_RADIUS, stepEnemies, type EnemyEvent, type Target } from './enemies';
+import { buildVillage, stepBuildings } from './buildings';
 import { Terrain } from './terrain';
 import { buildTitleMap, lettersInfected } from './titleMap';
 import { createArsenal, DEFAULT_WEAPONS, detonateBomb, fireMissile, restock, stepMissiles, type WeaponEvent } from './weapons';
@@ -18,7 +19,7 @@ function attract(seed: number, seconds: number) {
   const enemies = createEnemies(seed);
   const arsenal = createArsenal();
   const pilot = createDemoPilot(seed);
-  const tally = { crashes: 0, kills: 0, mutantKills: 0, bomberKills: 0, pestKills: 0, bites: 0, mutations: 0, bombs: 0, missiles: 0, landedOnPad: 0, modes: new Set<DemoMode>(), lettersAt: [] as number[] };
+  const tally = { crashes: 0, kills: 0, mutantKills: 0, bomberKills: 0, pestKills: 0, bites: 0, saves: 0, lost: 0, mutations: 0, bombs: 0, missiles: 0, landedOnPad: 0, modes: new Set<DemoMode>(), lettersAt: [] as number[] };
   for (let step = 0; step < seconds / DT; step++) {
     const command = stepDemoPilot(pilot, craft, enemies, arsenal, terrain, physics, DEFAULT_WEAPONS, centre, DT);
     tally.modes.add(command.mode);
@@ -42,6 +43,8 @@ function attract(seed: number, seconds: number) {
       if (e.type === 'seederMutated') tally.mutations++;
       if (e.type === 'pestDestroyed' && e.byBullet) tally.pestKills++;
       if (e.type === 'craftBitten') tally.bites++;
+      if (e.type === 'buildingSaved') tally.saves++;
+      if (e.type === 'buildingLost') tally.lost++;
     }
     if (!wasCrashed && craft.status === 'crashed') tally.crashes++;
     if (!wasOnPad && craft.status === 'landed' && terrain.tileTypeAt(craft.pos.x, craft.pos.z) === 'pad') tally.landedOnPad++;
@@ -54,10 +57,11 @@ describe('demo pilot', () => {
   it('shoots seeders down and seldom crashes', () => {
     for (const seed of [1, 2, 3]) {
       const { tally, cannon } = attract(seed, 180);
-      expect(tally.kills).toBeGreaterThanOrEqual(10);
+      // Kills and shots are fewer than they could be: it also breaks off to save the village's buildings.
+      expect(tally.kills).toBeGreaterThanOrEqual(8);
       // Now and then a mutant catches it, which the title screen may show.
       expect(tally.crashes).toBeLessThanOrEqual(4);
-      expect(cannon.shots).toBeGreaterThan(20);
+      expect(cannon.shots).toBeGreaterThan(12);
     }
   });
 
@@ -66,7 +70,7 @@ describe('demo pilot', () => {
     expect(tally.missiles).toBeGreaterThan(0);
     expect(tally.bombs).toBeGreaterThan(0);
     expect(tally.landedOnPad).toBeGreaterThan(0);
-    expect([...tally.modes].sort()).toEqual(['evade', 'hunt', 'patrol', 'refuel']);
+    expect([...tally.modes].sort()).toEqual(['evade', 'hunt', 'patrol', 'refuel', 'rescue']);
   });
 
   it('meets mutants, bombers and pests, and brings them down', () => {
@@ -86,10 +90,44 @@ describe('demo pilot', () => {
     expect(totals.bites).toBeGreaterThan(0); // the title shows a bite now and then
   });
 
+  it('saves infected buildings in the village', () => {
+    let saves = 0;
+    let lost = 0;
+    for (const seed of [1, 2, 3]) {
+      const { tally } = attract(seed, 240);
+      saves += tally.saves;
+      lost += tally.lost;
+    }
+    expect(saves).toBeGreaterThan(0);
+    expect(saves).toBeGreaterThan(lost / 4);
+  });
+
   it('loses in the end: the virus takes the lettering, so the title loop restarts', () => {
     const { tally, terrain, letters } = attract(2, 300);
     expect(tally.lettersAt[1]).toBeLessThan(0.5); // not straight away
     expect(lettersInfected(terrain, letters)).toBeGreaterThan(0.9);
+  });
+
+  it('flies over to an infected building and hovers until it is saved', () => {
+    const terrain = Terrain.fromRows(Array.from({ length: 32 }, () => Array<number>(32).fill(1)), { i: 15, j: 15, w: 3, h: 3 });
+    buildVillage(terrain, 24, 10, 1, () => 0.5);
+    const building = terrain.buildings[0]!;
+    expect(building.kind).toBe('tower'); // the tallest, the hardest to hover low over
+    terrain.infect(building.i, building.j);
+    const craft = spawnCraft(terrain);
+    const pilot = createDemoPilot(1);
+    const rules = { buildingFallTime: 15 };
+    const modes = new Set<DemoMode>();
+    let saved = false;
+    for (let step = 0; step < 12 / DT && !saved; step++) {
+      const command = stepDemoPilot(pilot, craft, createEnemies(1), createArsenal(), terrain, DEFAULT_PHYSICS, DEFAULT_WEAPONS, { x: 16, z: 8 }, DT);
+      modes.add(command.mode);
+      stepCraft(craft, command.input, terrain, DT, DEFAULT_PHYSICS);
+      saved = stepBuildings(terrain, craft, DT, rules, () => 0.5).events.some((e) => e.type === 'buildingSaved');
+    }
+    expect(saved).toBe(true);
+    expect(craft.status).toBe('flying');
+    expect(modes).toContain('rescue');
   });
 
   it('waits on the pad while there is nothing to shoot', () => {
