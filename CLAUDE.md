@@ -15,7 +15,7 @@ Current scope: a title screen in attract mode, craft, terrain with trees, launch
 - `npm run typecheck`: type-check only. There is no separate linter. `tsconfig` is strict, with `noUncheckedIndexedAccess`.
 - `npm test`: run all tests once. `npm run test:watch` runs them in watch mode.
 - Single test: `npx vitest run src/sim/craft.test.ts -t "lands softly"`
-- Deploy: every push to `main` runs `.github/workflows/deploy.yml`, which tests, builds and publishes `dist/` to GitHub Pages at https://brew-your-own.github.io/zarch-in-chrome/. `vite.config.ts` sets `base: './'` so the build works under that sub-path. The remote is owned by the `brew-your-own` GitHub account, not the work account.
+- Deploy: every push to `main` runs `.github/workflows/deploy.yml`, which tests, builds and publishes `dist/` to GitHub Pages at https://brew-your-own.github.io/zarch-in-chrome/. `vite.config.ts` sets `base: './'` so the build works under that sub-path. It also puts Three.js in a chunk of its own (`codeSplitting`), whose hash only changes when the library is upgraded, so a deploy only changes the game's own chunk (about 45 kB gzipped, against Three.js's 136 kB); `chunkSizeWarningLimit` is raised to 600 kB because that chunk alone is about 550 kB. The remote is owned by the `brew-your-own` GitHub account, not the work account.
 
 ## Architecture
 
