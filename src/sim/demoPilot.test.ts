@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createCannon, stepCannon } from './cannon';
 import { DEFAULT_PHYSICS, spawnCraft, stepCraft, type CraftState } from './craft';
 import { createDemoPilot, DEMO_ENEMIES, stepDemoPilot, wouldHit, type DemoMode } from './demoPilot';
-import { createEnemies, stepEnemies, type EnemyEvent, type Seeder } from './enemies';
+import { createEnemies, SEEDER_RADIUS, stepEnemies, type EnemyEvent, type Target } from './enemies';
 import { Terrain } from './terrain';
 import { buildTitleMap, lettersInfected } from './titleMap';
 import { createArsenal, DEFAULT_WEAPONS, detonateBomb, fireMissile, restock, stepMissiles, type WeaponEvent } from './weapons';
@@ -18,7 +18,7 @@ function attract(seed: number, seconds: number) {
   const enemies = createEnemies(seed);
   const arsenal = createArsenal();
   const pilot = createDemoPilot(seed);
-  const tally = { crashes: 0, kills: 0, bombs: 0, missiles: 0, landedOnPad: 0, modes: new Set<DemoMode>(), lettersAt: [] as number[] };
+  const tally = { crashes: 0, kills: 0, mutantKills: 0, bomberKills: 0, mutations: 0, bombs: 0, missiles: 0, landedOnPad: 0, modes: new Set<DemoMode>(), lettersAt: [] as number[] };
   for (let step = 0; step < seconds / DT; step++) {
     const command = stepDemoPilot(pilot, craft, enemies, arsenal, terrain, physics, DEFAULT_WEAPONS, centre, DT);
     tally.modes.add(command.mode);
@@ -37,6 +37,9 @@ function attract(seed: number, seconds: number) {
     for (const e of events) {
       if (e.type === 'waveStarted') restock(arsenal, e.wave, DEFAULT_WEAPONS);
       if (e.type === 'seederDestroyed' && e.byBullet) tally.kills++;
+      if (e.type === 'mutantDestroyed' && e.byBullet) tally.mutantKills++;
+      if (e.type === 'bomberDestroyed' && e.byBullet) tally.bomberKills++;
+      if (e.type === 'seederMutated') tally.mutations++;
     }
     if (!wasCrashed && craft.status === 'crashed') tally.crashes++;
     if (!wasOnPad && craft.status === 'landed' && terrain.tileTypeAt(craft.pos.x, craft.pos.z) === 'pad') tally.landedOnPad++;
@@ -50,7 +53,8 @@ describe('demo pilot', () => {
     for (const seed of [1, 2, 3]) {
       const { tally, cannon } = attract(seed, 180);
       expect(tally.kills).toBeGreaterThanOrEqual(10);
-      expect(tally.crashes).toBeLessThanOrEqual(2);
+      // Now and then a mutant catches it, which the title screen may show.
+      expect(tally.crashes).toBeLessThanOrEqual(4);
       expect(cannon.shots).toBeGreaterThan(20);
     }
   });
@@ -60,7 +64,20 @@ describe('demo pilot', () => {
     expect(tally.missiles).toBeGreaterThan(0);
     expect(tally.bombs).toBeGreaterThan(0);
     expect(tally.landedOnPad).toBeGreaterThan(0);
-    expect([...tally.modes].sort()).toEqual(['hunt', 'patrol', 'refuel']);
+    expect([...tally.modes].sort()).toEqual(['evade', 'hunt', 'patrol', 'refuel']);
+  });
+
+  it('meets mutants and bombers, and brings them down', () => {
+    const totals = { mutations: 0, mutantKills: 0, bomberKills: 0 };
+    for (const seed of [1, 2, 3]) {
+      const { tally } = attract(seed, 240);
+      totals.mutations += tally.mutations;
+      totals.mutantKills += tally.mutantKills;
+      totals.bomberKills += tally.bomberKills;
+    }
+    expect(totals.mutations).toBeGreaterThan(0);
+    expect(totals.mutantKills).toBeGreaterThan(0);
+    expect(totals.bomberKills).toBeGreaterThan(0);
   });
 
   it('loses in the end: the virus takes the lettering, so the title loop restarts', () => {
@@ -82,7 +99,7 @@ describe('demo pilot', () => {
 describe('wouldHit', () => {
   const terrain = Terrain.fromRows(Array.from({ length: 32 }, () => Array<number>(32).fill(0.5)), { i: 15, j: 15, w: 3, h: 3 });
   const craft = (): CraftState => ({ ...spawnCraft(terrain), pos: { x: 16, y: 3, z: 16 }, status: 'flying', heading: 0 });
-  const seeder = (x: number, y: number, z: number): Seeder => ({ id: 1, pos: { x, y, z }, vel: { x: 0, y: 0, z: 0 }, target: { x, z }, dropIn: 1, age: 0 });
+  const seeder = (x: number, y: number, z: number): Target => ({ id: 1, pos: { x, y, z }, vel: { x: 0, y: 0, z: 0 }, radius: SEEDER_RADIUS });
 
   it('is true for a seeder dead ahead of a level nose', () => {
     expect(wouldHit(craft(), seeder(16, 3, 11), terrain, DEFAULT_PHYSICS)).toBe(true);

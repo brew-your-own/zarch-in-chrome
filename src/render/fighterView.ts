@@ -19,7 +19,7 @@ const BELLY = 0x3a1010;
 const EXHAUST = 0xff9030;
 
 /** A low-poly dart: red back, dark belly and a glowing rear. */
-function fighterGeometry(): THREE.BufferGeometry {
+export function fighterGeometry(): THREE.BufferGeometry {
   const faces: [readonly number[], readonly number[], readonly number[], number][] = [
     [NOSE, LEFT, TOP, HULL],
     [NOSE, TOP, RIGHT, HULL],

@@ -16,14 +16,14 @@ const MUTANT_SPIN = 7;
 const MUTANT_TUMBLE = 0.5;
 
 /** A squat spinning top: a flattened octahedron with alternating purple and yellow faces. */
-function seederGeometry(): THREE.BufferGeometry {
+export function seederGeometry(): THREE.BufferGeometry {
   const g = new THREE.OctahedronGeometry(RADIUS, 0).toNonIndexed();
   g.scale(1, 0.45, 1);
   return paint(g, FACE_COLOURS);
 }
 
 /** A spiky ball: each face of an icosahedron raised into a three-sided spike. */
-function mutantGeometry(): THREE.BufferGeometry {
+export function mutantGeometry(): THREE.BufferGeometry {
   const base = new THREE.IcosahedronGeometry(RADIUS * 0.6, 0);
   const corners = base.attributes.position!;
   const positions: number[] = [];

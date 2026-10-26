@@ -33,12 +33,13 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
 export interface TitleHandlers {
   onFly: () => void;
   onSettings: () => void;
+  onGuide: () => void;
   onMapChange: (mapId: string) => void;
 }
 
 /**
  * The title screen's DOM, laid over the attract mode: the controls, lit as the demo pilot
- * uses them, the Fly and Settings buttons, the best score and the map to play.
+ * uses them, the Fly, Settings and Enemies buttons, the best score and the map to play.
  */
 export class TitleScreen {
   private readonly chips = new Map<ControlId, { node: HTMLElement; glow: number }>();
@@ -74,8 +75,10 @@ export class TitleScreen {
     fly.addEventListener('click', handlers.onFly);
     const settings = el('button', 'reset', 'Settings');
     settings.addEventListener('click', handlers.onSettings);
+    const guide = el('button', 'reset', 'Enemies');
+    guide.addEventListener('click', handlers.onGuide);
     const buttons = el('div', 'title-buttons');
-    buttons.append(fly, settings);
+    buttons.append(fly, settings, guide);
 
     const step = (by: number) => {
       const k = MAPS.findIndex((m) => m.id === this.mapId());

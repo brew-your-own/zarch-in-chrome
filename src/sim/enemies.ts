@@ -98,6 +98,7 @@ export function isOverrun(terrain: Terrain, settings: EnemySettings): boolean {
 export interface Target {
   id: number;
   pos: Vec3;
+  vel: Vec3;
   /** Collision radius (bullets, missiles and the craft). */
   radius: number;
 }
@@ -105,10 +106,10 @@ export interface Target {
 /** Every enemy alive, of every kind. */
 export function targets(enemies: EnemyState): Target[] {
   return [
-    ...enemies.fighters.map((e) => ({ id: e.id, pos: e.pos, radius: FIGHTER_RADIUS })),
-    ...enemies.mutants.map((e) => ({ id: e.id, pos: e.pos, radius: MUTANT_RADIUS })),
-    ...enemies.bombers.map((e) => ({ id: e.id, pos: e.pos, radius: BOMBER_RADIUS })),
-    ...enemies.seeders.map((e) => ({ id: e.id, pos: e.pos, radius: SEEDER_RADIUS })),
+    ...enemies.fighters.map((e) => ({ id: e.id, pos: e.pos, vel: e.vel, radius: FIGHTER_RADIUS })),
+    ...enemies.mutants.map((e) => ({ id: e.id, pos: e.pos, vel: e.vel, radius: MUTANT_RADIUS })),
+    ...enemies.bombers.map((e) => ({ id: e.id, pos: e.pos, vel: e.vel, radius: BOMBER_RADIUS })),
+    ...enemies.seeders.map((e) => ({ id: e.id, pos: e.pos, vel: e.vel, radius: SEEDER_RADIUS })),
   ];
 }
 

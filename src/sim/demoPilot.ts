@@ -1,17 +1,18 @@
 import { autopilotInput, CLEARANCE, highestObstacle, steer } from './autopilot';
 import { noseDirection, type CraftInput, type CraftState, type Physics } from './craft';
-import { DEFAULT_ENEMIES, SEEDER_RADIUS, type EnemySettings, type EnemyState, type Seeder } from './enemies';
+import { DEFAULT_ENEMIES, enemyCount, targets, type EnemySettings, type EnemyState, type Target } from './enemies';
 import { createRng } from './rng';
 import type { Terrain } from './terrain';
 import type { Arsenal, WeaponSettings } from './weapons';
 
 /**
  * The title screen's computer pilot. It guards the area around `home` (the title lettering):
- * it hunts seeders that come within `LEASH` of it, hovers about while there are none,
- * and flies back to the pad to refuel when low or between waves. It uses every control
- * the player has, so the title screen can show each one as it happens.
+ * it hunts enemies that come within `LEASH` of it, bombers first, hovers about while there
+ * are none, sidesteps a mutant's dive, and flies back to the pad to refuel when low or
+ * between waves. It uses every control the player has, so the title screen can show each
+ * one as it happens.
  */
-export type DemoMode = 'patrol' | 'hunt' | 'refuel';
+export type DemoMode = 'patrol' | 'hunt' | 'evade' | 'refuel';
 
 export interface DemoPilot {
   mode: DemoMode;
@@ -21,6 +22,8 @@ export interface DemoPilot {
   patrolIn: number;
   /** Seconds until a missile may be fired. */
   missileIn: number;
+  /** While evading a mutant, the direction it is running in. */
+  run: { x: number; z: number } | null;
   rng: () => number;
 }
 
@@ -33,7 +36,10 @@ export interface DemoCommand {
   mode: DemoMode;
 }
 
-/** Enemies on the title screen: fewer, slower seeders that never mutate, no fighters or bombers, a quicker virus. */
+/**
+ * Enemies on the title screen: fewer, slower seeders that mutate sooner, a bomber from the
+ * second wave, no fighters, and a quicker virus.
+ */
 export const DEMO_ENEMIES: Readonly<EnemySettings> = Object.freeze({
   ...DEFAULT_ENEMIES,
   firstWave: 2,
@@ -41,12 +47,13 @@ export const DEMO_ENEMIES: Readonly<EnemySettings> = Object.freeze({
   sporeInterval: 1.2,
   virusSpread: 0.05,
   fighters: 0,
-  mutateAfter: 0,
-  bombers: 0,
+  mutateAfter: 60,
+  bombers: 1,
+  bombersFromWave: 2,
   difficultyRamp: 0.15,
 });
 
-/** Seeders further than this from home are left alone. */
+/** Enemies further than this from home are left alone. */
 const LEASH = 14;
 /** Patrol points lie within this distance of home. */
 const PATROL_RADIUS = 6;
@@ -60,17 +67,26 @@ const RETREAT_SPEED = 2;
 /** Lean during a gun run, and the steepest lean on the way to one. */
 const GUN_LEAN = (10 * Math.PI) / 180;
 const APPROACH_LEAN = (25 * Math.PI) / 180;
-/** A shot is taken when it would pass within this many seeder radii. */
+/** A shot is taken when it would pass within this many of the target's radii. */
 const HIT_MARGIN = 0.9;
 /** Heads for the pad below this share of a full tank, and takes off again once refilled. */
 const LOW_FUEL = 0.35;
 const FULL = 0.98;
-/** A bomb goes off when this many seeders are within this share of the bomb's radius. */
+/** A bomb goes off when this many enemies are within this share of the bomb's radius. */
 const BOMB_CROWD = 2;
 const BOMB_REACH = 0.7;
+/**
+ * With a mutant this close (3D), the pilot runs in straight lines at this speed, the way a
+ * player should: a mutant's dive is a straight line too, and it misses a craft that keeps
+ * moving. Running further than `RUN_LEASH` from home, it turns back.
+ */
+const EVADE_RANGE = 12;
+const EVADE_SPEED = 5;
+const RUN_LEASH = 9;
+const RUN_LEAN = (35 * Math.PI) / 180;
 
 export function createDemoPilot(seed: number): DemoPilot {
-  return { mode: 'refuel', targetId: null, patrol: { x: 0, z: 0 }, patrolIn: 0, missileIn: 6, rng: createRng(seed) };
+  return { mode: 'refuel', targetId: null, patrol: { x: 0, z: 0 }, patrolIn: 0, missileIn: 6, run: null, rng: createRng(seed) };
 }
 
 const IDLE: CraftInput = { aimX: 0, aimY: 0, thrust: false };
@@ -94,22 +110,35 @@ export function stepDemoPilot(
 
   // Refuel when low, and wait on the pad between waves.
   const onPad = craft.status === 'landed' && terrain.tileTypeAt(craft.pos.x, craft.pos.z) === 'pad';
-  if (craft.fuel < LOW_FUEL * physics.maxFuel || enemies.seeders.length === 0) pilot.mode = 'refuel';
+  const none = enemyCount(enemies) === 0;
+  if (craft.fuel < LOW_FUEL * physics.maxFuel || none) pilot.mode = 'refuel';
   if (pilot.mode === 'refuel') {
     if (!onPad) return command(autopilotInput(craft, terrain, physics));
-    if (craft.fuel < FULL * physics.maxFuel || enemies.seeders.length === 0) return command(IDLE);
+    if (craft.fuel < FULL * physics.maxFuel || none) return command(IDLE);
     pilot.mode = 'patrol';
+  }
+
+  // A mutant close by comes first: keep moving round it, shooting when it lines up.
+  const evading = evade(pilot, craft, enemies, terrain, physics, home);
+  pilot.run = evading ? pilot.run : null;
+  if (evading) {
+    pilot.mode = 'evade';
+    return command(evading.input, evading.fire);
   }
 
   const fromHome = (p: { x: number; z: number }) => Math.hypot(terrain.delta(home.x, p.x), terrain.delta(home.z, p.z));
   const fromCraft = (p: { x: number; z: number }) => Math.hypot(terrain.delta(craft.pos.x, p.x), terrain.delta(craft.pos.z, p.z));
-  const near = enemies.seeders.filter((s) => fromHome(s.pos) < LEASH);
-  let target = near.find((s) => s.id === pilot.targetId);
-  if (!target) target = near.reduce<Seeder | undefined>((best, s) => (!best || fromCraft(s.pos) < fromCraft(best.pos) ? s : best), undefined);
+  const all = targets(enemies);
+  const near = all.filter((t) => fromHome(t.pos) < LEASH);
+  // Bombers lay the most virus, so they are hunted first; otherwise the nearest, keeping the current target.
+  const bombers = near.filter((t) => enemies.bombers.some((b) => b.id === t.id));
+  const pool = bombers.length > 0 ? bombers : near;
+  let target = pool.find((t) => t.id === pilot.targetId);
+  if (!target) target = pool.reduce<Target | undefined>((best, t) => (!best || fromCraft(t.pos) < fromCraft(best.pos) ? t : best), undefined);
   pilot.targetId = target?.id ?? null;
   pilot.mode = target ? 'hunt' : 'patrol';
 
-  const bomb = arsenal.bombs > 0 && enemies.seeders.filter((s) => fromCraft(s.pos) < weapons.bombRadius * BOMB_REACH).length >= BOMB_CROWD;
+  const bomb = arsenal.bombs > 0 && all.filter((t) => fromCraft(t.pos) < weapons.bombRadius * BOMB_REACH).length >= BOMB_CROWD;
   pilot.missileIn -= dt;
   let missile = false;
   if (target && arsenal.missiles > 0 && pilot.missileIn <= 0 && fromCraft(target.pos) > FIRE_RANGE + 3) {
@@ -144,12 +173,60 @@ function patrol(pilot: DemoPilot, craft: CraftState, terrain: Terrain, physics: 
 }
 
 /**
- * Makes gun runs at the seeder, aiming at where it will be when a bullet gets there. Out of
+ * Runs in a straight line across the nearest mutant within `EVADE_RANGE`, at `EVADE_SPEED`,
+ * firing whenever a bullet would hit it. The run starts across the line to the mutant and
+ * turns back towards home when it strays too far. Null when no mutant is that close.
+ */
+function evade(
+  pilot: DemoPilot,
+  craft: CraftState,
+  enemies: EnemyState,
+  terrain: Terrain,
+  physics: Physics,
+  home: { x: number; z: number },
+): { input: CraftInput; fire: boolean } | null {
+  let nearest: Target | undefined;
+  let nearestDistance = EVADE_RANGE;
+  for (const t of targets(enemies)) {
+    if (!enemies.mutants.some((m) => m.id === t.id)) continue;
+    const d = Math.hypot(terrain.delta(craft.pos.x, t.pos.x), t.pos.y - craft.pos.y, terrain.delta(craft.pos.z, t.pos.z));
+    if (d < nearestDistance) {
+      nearest = t;
+      nearestDistance = d;
+    }
+  }
+  if (!nearest) return null;
+  pilot.targetId = nearest.id;
+
+  const hx = terrain.delta(craft.pos.x, home.x);
+  const hz = terrain.delta(craft.pos.z, home.z);
+  const away = Math.hypot(hx, hz);
+  if (!pilot.run) {
+    // Across the line to the mutant, on the side nearer home.
+    const dx = terrain.delta(craft.pos.x, nearest.pos.x);
+    const dz = terrain.delta(craft.pos.z, nearest.pos.z);
+    const d = Math.hypot(dx, dz) || 1;
+    const side = -dz * hx + dx * hz >= 0 ? 1 : -1;
+    pilot.run = { x: (-dz / d) * side, z: (dx / d) * side };
+  } else if (away > RUN_LEASH && pilot.run.x * hx + pilot.run.z * hz < 0) {
+    // Heading away from home: turn back towards it, a little off the straight line.
+    const angle = Math.atan2(hz, hx) + (pilot.rng() - 0.5);
+    pilot.run = { x: Math.cos(angle), z: Math.sin(angle) };
+  }
+  const vx = pilot.run.x * EVADE_SPEED;
+  const vz = pilot.run.z * EVADE_SPEED;
+  const clear = highestObstacle(terrain, craft.pos.x, craft.pos.z, vx, vz, EVADE_SPEED) + CLEARANCE;
+  const input = steer(craft, physics, vx, climb(craft, Math.max(clear, craft.pos.y)), vz, RUN_LEAN);
+  return { input, fire: wouldHit(craft, nearest, terrain, physics) };
+}
+
+/**
+ * Makes gun runs at the target, aiming at where it will be when a bullet gets there. Out of
  * range, or too close, the craft flies to `GUN_RANGE` from it. In range, it leans gently
  * towards it: the nose follows the lean and dips with it, so the craft holds a little above
- * the seeder to keep the nose on it. It fires whenever a bullet fired now would hit.
+ * the target to keep the nose on it. It fires whenever a bullet fired now would hit.
  */
-function hunt(craft: CraftState, s: Seeder, terrain: Terrain, physics: Physics): { input: CraftInput; fire: boolean } {
+function hunt(craft: CraftState, s: Target, terrain: Terrain, physics: Physics): { input: CraftInput; fire: boolean } {
   const dx = terrain.delta(craft.pos.x, s.pos.x);
   const dz = terrain.delta(craft.pos.z, s.pos.z);
   const lead = Math.hypot(dx, dz) / Math.max(1, physics.bulletSpeed);
@@ -172,10 +249,10 @@ function hunt(craft: CraftState, s: Seeder, terrain: Terrain, physics: Physics):
 }
 
 /**
- * Whether a bullet fired now would pass within reach of the seeder, both flying straight:
+ * Whether a bullet fired now would pass within reach of the target, both flying straight:
  * the closest approach of the two paths within the bullet's life.
  */
-export function wouldHit(craft: CraftState, s: Seeder, terrain: Terrain, physics: Physics): boolean {
+export function wouldHit(craft: CraftState, s: Target, terrain: Terrain, physics: Physics): boolean {
   const nose = noseDirection(craft, physics);
   const rx = terrain.delta(craft.pos.x + nose.x * 0.5, s.pos.x);
   const ry = s.pos.y - (craft.pos.y + nose.y * 0.5);
@@ -185,7 +262,7 @@ export function wouldHit(craft: CraftState, s: Seeder, terrain: Terrain, physics
   const wz = s.vel.z - craft.vel.z - nose.z * physics.bulletSpeed;
   const w2 = wx * wx + wy * wy + wz * wz;
   const t = w2 > 1e-9 ? Math.max(0, Math.min(physics.bulletLife, -(rx * wx + ry * wy + rz * wz) / w2)) : 0;
-  const reach = SEEDER_RADIUS * HIT_MARGIN;
+  const reach = s.radius * HIT_MARGIN;
   return Math.hypot(rx + wx * t, rz + wz * t) < reach && Math.abs(ry + wy * t) < reach;
 }
 

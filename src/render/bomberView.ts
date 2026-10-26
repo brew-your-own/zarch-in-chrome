@@ -21,7 +21,7 @@ const BELLY_COLOUR = 0x222a14;
 const BAY = 0xff7020;
 
 /** A wide, flat flying wing in olive drab, with a glowing bomb bay underneath. */
-function bomberGeometry(): THREE.BufferGeometry {
+export function bomberGeometry(): THREE.BufferGeometry {
   const faces: [readonly number[], readonly number[], readonly number[], number][] = [
     [NOSE, LEFT, TOP, WING],
     [NOSE, TOP, RIGHT, WING_DARK],

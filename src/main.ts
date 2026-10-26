@@ -25,6 +25,7 @@ import { buildMap, findMap } from './sim/maps';
 import { createArsenal, detonateBomb, fireMissile, restock, stepMissiles, type WeaponEvent } from './sim/weapons';
 import type { Terrain } from './sim/terrain';
 import { buildTitleMap, lettersInfected, type TitleMap } from './sim/titleMap';
+import { EnemyGuide } from './ui/enemyGuide';
 import { GameOverScreen, recordScore, type GameOverStats } from './ui/gameOver';
 import { Hud } from './ui/hud';
 import { Scanner } from './ui/scanner';
@@ -197,6 +198,7 @@ function showTitleSettings() {
 
 const input = new MouseInput(canvas, (locked) => {
   if (locked) {
+    guide.hide();
     panel.hide();
     gameOverScreen.hide();
   } else if (mode === 'title') {
@@ -234,6 +236,7 @@ function enterTitle() {
   hud.hideBanner();
   hudColumn.classList.add('hidden');
   panel.hide();
+  guide.hide();
   gameOverScreen.hide();
   titleScreen.show();
 }
@@ -271,6 +274,20 @@ function endGame(reason: GameOverStats['reason']) {
   document.exitPointerLock();
 }
 
+/**
+ * The enemy guide, opened from the title screen or over the settings panel; Back returns
+ * to where it was opened from (the panel stays up underneath it).
+ */
+const guide = new EnemyGuide(document.querySelector<HTMLDivElement>('#guide')!, settings.enemies, () => closeGuide());
+function closeGuide() {
+  guide.hide();
+  if (mode === 'title' && !panel.visible) titleScreen.show();
+}
+function showGuide() {
+  if (!panel.visible) titleScreen.hide();
+  guide.show();
+}
+
 const closeTitleSettings = () => {
   panel.hide();
   titleScreen.show();
@@ -284,6 +301,7 @@ const panel = new SettingsPanel(overlay, settings, {
   },
   onQuit: enterTitle,
   onChange: () => saveSettings(settings),
+  onGuide: showGuide,
   onMapChange: (mapId) => {
     settings.mapId = mapId;
     saveSettings(settings);
@@ -309,6 +327,7 @@ const gameOverScreen = new GameOverScreen(document.querySelector<HTMLDivElement>
 const titleScreen = new TitleScreen(document.querySelector<HTMLDivElement>('#title')!, () => settings.mapId, {
   onFly: startGame,
   onSettings: showTitleSettings,
+  onGuide: showGuide,
   onMapChange: (mapId) => {
     settings.mapId = mapId;
     saveSettings(settings);
@@ -318,8 +337,10 @@ const titleScreen = new TitleScreen(document.querySelector<HTMLDivElement>('#tit
 // R engages auto-refuel (once per wave), or hands control back if it is flying.
 // Space sets off a smart bomb; E fires a homing missile (as does the middle button).
 document.addEventListener('keydown', (e) => {
-  // Esc closes the settings opened from the title (in a game, Esc releases the pointer, which pauses).
-  if (e.code === 'Escape' && panel.visible && panel.openedFrom === 'title') closeTitleSettings();
+  // Esc closes the enemy guide, or the settings opened from the title (in a game, Esc
+  // releases the pointer, which pauses).
+  if (e.code === 'Escape' && guide.visible) closeGuide();
+  else if (e.code === 'Escape' && panel.visible && panel.openedFrom === 'title') closeTitleSettings();
   if (e.repeat || !input.locked || gameOver || mode !== 'game') return;
   if (e.code === 'KeyR') {
     const wasActive = autopilot.active;
