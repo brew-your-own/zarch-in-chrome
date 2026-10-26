@@ -23,7 +23,7 @@ export const DEFAULT_AUTOPILOT: Readonly<AutopilotSettings> = Object.freeze({ en
 /** Top cruise speed towards the pad (units/s). */
 const CRUISE_SPEED = 4;
 /** Height kept above the highest ground or treetop on the way. */
-const CLEARANCE = 1.2;
+export const CLEARANCE = 1.2;
 /** How far ahead along the route the clearance looks (units). */
 const LOOKAHEAD = 5;
 /** Below the cruise height by more than this, the craft climbs in place before moving on. */
@@ -123,6 +123,15 @@ export function autopilotInput(craft: CraftState, terrain: Terrain, physics: Phy
   const speed = tooLow || distance < 1e-6 ? 0 : Math.min(CRUISE_SPEED, distance * 0.9);
   const wantVx = distance < 1e-6 ? 0 : (dx / distance) * speed;
   const wantVz = distance < 1e-6 ? 0 : (dz / distance) * speed;
+  return steer(craft, physics, wantVx, wantVy, wantVz);
+}
+
+/**
+ * The input that moves the craft's velocity towards (wantVx, wantVy, wantVz): thrust is
+ * switched on whenever it is sinking faster than wanted, and the lean gives the sideways
+ * acceleration, never so steep that full thrust can't hold altitude.
+ */
+export function steer(craft: CraftState, physics: Physics, wantVx: number, wantVy: number, wantVz: number, maxLean = MAX_LEAN): CraftInput {
   const ax = (wantVx - craft.vel.x) * 1.5;
   const az = (wantVz - craft.vel.z) * 1.5;
   const accel = Math.hypot(ax, az);
@@ -130,7 +139,7 @@ export function autopilotInput(craft: CraftState, terrain: Terrain, physics: Phy
   // Hovering, the thrust's average vertical push equals gravity, so a lean of θ gives
   // g·tanθ sideways. Never lean so far that full thrust can't hold altitude.
   const holdable = physics.thrust > 1.3 * physics.gravity ? Math.acos((1.3 * physics.gravity) / physics.thrust) : 0;
-  const lean = Math.min(Math.atan2(accel, physics.gravity), MAX_LEAN, holdable, physics.maxTilt);
+  const lean = Math.min(Math.atan2(accel, physics.gravity), maxLean, holdable, physics.maxTilt);
   const aim = accel > 1e-9 && physics.maxTilt > 0 ? lean / physics.maxTilt : 0;
   const tiltX = accel > 1e-9 ? (ax / accel) * aim : 0;
   const tiltZ = accel > 1e-9 ? (az / accel) * aim : 0;
@@ -143,7 +152,7 @@ export function autopilotInput(craft: CraftState, terrain: Terrain, physics: Phy
  * Highest ground or treetop near the craft and along the route ahead, sampling every half
  * unit and checking the trees on the 3x3 tiles around each sample.
  */
-function highestObstacle(terrain: Terrain, x: number, z: number, dx: number, dz: number, distance: number): number {
+export function highestObstacle(terrain: Terrain, x: number, z: number, dx: number, dz: number, distance: number): number {
   const reach = Math.min(LOOKAHEAD, distance);
   const steps = Math.ceil(reach / 0.5);
   let top = -Infinity;

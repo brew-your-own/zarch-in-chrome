@@ -44,6 +44,28 @@ describe('camera rig', () => {
     rig.update(pos, craft, 1, 1 / 60, 1 / 60);
     expect(camera.position.distanceTo(settled)).toBeLessThan(1e-3);
   });
+
+  it('stands back for the title and eases in to the game framing, or jumps there at once', () => {
+    const t = Terrain.fromRows([[1, 1], [1, 1]], { i: 0, j: 0, w: 1, h: 1 });
+    const camera = new THREE.PerspectiveCamera();
+    const rig = new CameraRig(camera, { ...DEFAULT_CAMERA, zoom: 0 });
+    const craft = spawnCraft(t);
+    const pos = { x: 0, y: 1, z: 0 };
+    const back = () => camera.position.z - pos.z;
+    rig.update(pos, craft, 1, 1 / 60, 1 / 60);
+    const usual = back();
+
+    rig.frame(2, true);
+    rig.update(pos, craft, 1, 1 / 60, 1 / 60);
+    expect(back()).toBeCloseTo(usual * 2);
+    expect(rig.extraReach).toBeCloseTo(usual);
+
+    rig.frame(1);
+    rig.update(pos, craft, 1, 1 / 60, 1 / 60);
+    expect(back()).toBeGreaterThan(usual * 1.9); // a swoop, not a cut
+    for (let k = 0; k < 600; k++) rig.update(pos, craft, 1, 1 / 60, 1 / 60);
+    expect(back()).toBeCloseTo(usual, 2);
+  });
 });
 
 describe('waves', () => {

@@ -93,8 +93,16 @@ const COLOUR_SLIDERS: SliderSpec<Settings['colours']>[] = [
   { key: 'patches', label: 'Ground patches', min: 0, max: 100, step: 1, unit: '%', scale: 100 },
 ];
 
+/** Where the panel was opened from: the title screen, or a game paused with Esc. */
+export type PanelContext = 'title' | 'paused';
+
 export interface SettingsPanelHandlers {
-  onFly: () => void;
+  /** Closes the panel opened from the title screen. */
+  onBack: () => void;
+  /** Goes back to the paused game. */
+  onResume: () => void;
+  /** Abandons the paused game for the title screen. */
+  onQuit: () => void;
   onMapChange: (mapId: string) => void;
   /** Called after any physics/plume/colour value changes. */
   onChange: () => void;
@@ -112,8 +120,8 @@ function decimals(step: number): number {
 }
 
 /**
- * The pause screen: start/resume button, map picker with minimap, and
- * sliders that edit `settings.physics` / `settings.plume` in place.
+ * The settings screen, opened from the title or by pausing a game: map picker with minimap,
+ * and sliders that edit the settings in place. While paused it resumes or quits the game.
  */
 export class SettingsPanel {
   private readonly status = el('p', 'status');
@@ -123,10 +131,13 @@ export class SettingsPanel {
   private readonly ratio = el('p', 'note');
   private readonly thumbs: { canvas: HTMLCanvasElement; terrain: Terrain; palette: Palette }[] = [];
   private readonly presetButtons = new Map<keyof typeof COLOUR_PRESETS, HTMLButtonElement>();
+  private readonly primary = el('button', 'fly');
+  private readonly quit = el('button', 'reset', 'Quit to title');
+  private context: PanelContext = 'title';
   private shown?: {
     terrain: Terrain;
     palette: Palette;
-    marker: { x: number; z: number };
+    marker?: { x: number; z: number };
     enemies: { x: number; z: number }[];
   };
 
@@ -137,9 +148,9 @@ export class SettingsPanel {
   ) {
     const panel = el('div', 'panel');
     const header = el('header');
-    const fly = el('button', 'fly', 'FLY ▸');
-    fly.addEventListener('click', handlers.onFly);
-    header.append(el('h1', undefined, 'ZARCH'), this.status, fly);
+    this.primary.addEventListener('click', () => (this.context === 'title' ? handlers.onBack() : handlers.onResume()));
+    this.quit.addEventListener('click', handlers.onQuit);
+    header.append(el('h1', undefined, 'ZARCH'), this.status, this.quit, this.primary);
 
     const mapSection = el('section');
     this.minimap.width = this.minimap.height = 256;
@@ -217,30 +228,45 @@ export class SettingsPanel {
     panel.append(
       header,
       columns,
-      el('p', 'help', 'Move mouse: tilt craft · Left button: thrust · Right button: fire · Middle button / E: missile · Space: smart bomb · R: auto-refuel · Esc: pause'),
+      el('p', 'help', 'Move mouse: tilt craft · Left button: thrust · Right button: fire · Middle button / E: missile · Space: smart bomb · R: auto-refuel · Esc: pause / close'),
     );
     root.append(panel);
     this.highlightMap();
     this.refresh();
   }
 
-  /** Shows the panel. `started` switches the wording from start to resume. */
+  /**
+   * Shows the panel, with `terrain` in the minimap: the game's, with the craft and enemies
+   * marked, while paused; the map picked for the next game when opened from the title.
+   */
   show(
+    context: PanelContext,
     terrain: Terrain,
     palette: Palette,
-    craftPos: { x: number; z: number },
-    started: boolean,
+    craftPos?: { x: number; z: number },
     enemies: readonly { pos: { x: number; z: number } }[] = [],
   ): void {
-    this.status.textContent = started ? 'PAUSED' : 'Ready for launch';
+    this.context = context;
+    this.status.textContent = context === 'paused' ? 'PAUSED' : 'Settings';
+    this.primary.textContent = context === 'paused' ? 'RESUME ▸' : '◂ BACK';
+    this.quit.classList.toggle('hidden', context !== 'paused');
     this.shown = {
       terrain,
       palette,
-      marker: { x: craftPos.x, z: craftPos.z },
+      marker: craftPos && { x: craftPos.x, z: craftPos.z },
       enemies: enemies.map((e) => ({ x: e.pos.x, z: e.pos.z })),
     };
     this.drawMaps();
+    this.highlightMap();
     this.root.classList.remove('hidden');
+  }
+
+  get visible(): boolean {
+    return !this.root.classList.contains('hidden');
+  }
+
+  get openedFrom(): PanelContext {
+    return this.context;
   }
 
   /** Redraws the minimap and thumbnails, e.g. after a colour change. */

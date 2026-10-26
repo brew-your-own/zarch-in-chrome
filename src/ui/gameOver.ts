@@ -44,15 +44,15 @@ export class GameOverScreen {
 
   constructor(
     private readonly root: HTMLElement,
-    handlers: { onPlayAgain: () => void; onSettings: () => void },
+    handlers: { onPlayAgain: () => void; onTitle: () => void },
   ) {
     const panel = el('div', 'panel gameover');
     const again = el('button', 'fly', 'PLAY AGAIN ▸');
     again.addEventListener('click', handlers.onPlayAgain);
-    const settings = el('button', 'reset', 'Settings');
-    settings.addEventListener('click', handlers.onSettings);
+    const title = el('button', 'reset', 'Title screen');
+    title.addEventListener('click', handlers.onTitle);
     const buttons = el('div', 'gameover-buttons');
-    buttons.append(again, settings);
+    buttons.append(again, title);
     panel.append(el('h1', undefined, 'GAME OVER'), this.reason, this.stats, this.best, buttons);
     root.append(panel);
     this.hide();

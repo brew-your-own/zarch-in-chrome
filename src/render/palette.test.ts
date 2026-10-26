@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { buildMap, findMap } from '../sim/maps';
+import { buildTitleMap } from '../sim/titleMap';
 import { TREE_PINE, TREE_ROUND } from '../sim/trees';
 import { COLOUR_PRESETS, Palette, VIRUS, type ColourSettings } from './palette';
 
@@ -82,5 +83,25 @@ describe('Palette', () => {
     expect(palette.tile(i, j, new THREE.Color(), false).getHex()).toBe(VIRUS.getHex());
     const leaves = palette.foliage(i, j, TREE_PINE, new THREE.Color());
     expect(leaves.r).toBeGreaterThan(leaves.g * 3);
+  });
+
+  it('paints the title lettering on its slab, unless the virus has it', () => {
+    const { terrain: title, letters } = buildTitleMap();
+    const palette = new Palette(title, { ...COLOUR_PRESETS.summer.colours }, letters);
+    const n = title.size;
+    const tileOf = (value: number) => {
+      const k = letters.indexOf(value);
+      return [k % n, Math.floor(k / n)] as const;
+    };
+    const colour = (i: number, j: number) => palette.tile(i, j, new THREE.Color()).getHexString();
+    const [li, lj] = tileOf(1);
+    const [si, sj] = tileOf(2);
+    expect(colour(li, lj)).not.toBe(colour(si, sj));
+    // Neither is checkered, so neighbouring letter tiles match.
+    expect(letters[lj * n + li + 1]).toBe(1);
+    expect(colour(li + 1, lj)).toBe(colour(li, lj));
+    title.infect(li, lj);
+    const infected = palette.tile(li, lj, new THREE.Color(), false);
+    expect(infected.getHexString()).toBe(VIRUS.getHexString());
   });
 });

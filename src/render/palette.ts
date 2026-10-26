@@ -26,6 +26,9 @@ const GRASS = [new THREE.Color(0x3fbf3a), new THREE.Color(0x8fae3c), new THREE.C
 const PATCHES = [new THREE.Color(0xb5541e), new THREE.Color(0xd9792a), new THREE.Color(0x8a5a2b)];
 const SEA = [new THREE.Color(0x1d3fbf), new THREE.Color(0x2449d6)];
 const PAD = [new THREE.Color(0x9a9a9a), new THREE.Color(0xb4b4b4)];
+/** The title screen's lettering, pale stone, on a slab of dark stone: both clear of the grey pad. */
+const LETTERING = new THREE.Color(0xf2e8c9);
+const SLAB = new THREE.Color(0x3b4250);
 const PINE = new THREE.Color(0x24753a);
 const SUMMER_LEAVES = new THREE.Color(0x5aa83a);
 const AUTUMN_LEAVES = [0xd9b52a, 0xe5862a, 0xd0502a, 0xa8321e].map((c) => new THREE.Color(c));
@@ -44,9 +47,14 @@ export class Palette {
   private readonly patchAmount: Float32Array;
   private readonly patchKind: Float32Array;
 
+  /**
+   * `letters`, if given, paints tiles (row-major) as on the title map: 1 for lettering,
+   * 2 for the slab it stands on. Neither is checkered, so the letters read clearly.
+   */
   constructor(
     private readonly terrain: Terrain,
     private readonly colours: ColourSettings,
+    private readonly letters: Uint8Array | null = null,
   ) {
     // Seed from the terrain itself so each map gets its own patch layout.
     let seed = terrain.size;
@@ -70,6 +78,10 @@ export class Palette {
     const k = (((j % n) + n) % n) * n + (((i % n) + n) % n);
     if (t.isInfected(i, j)) {
       out.copy(VIRUS);
+    } else if (this.letters?.[k] === 1) {
+      return out.copy(LETTERING);
+    } else if (this.letters?.[k] === 2) {
+      return out.copy(SLAB);
     } else if (this.patchAmount[k]! > 1 - 0.6 * this.colours.patches) {
       out.copy(PATCHES[Math.min(PATCHES.length - 1, Math.floor(this.patchKind[k]! * PATCHES.length))]!);
     } else {

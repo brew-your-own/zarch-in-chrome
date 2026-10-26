@@ -4,6 +4,8 @@ A browser tribute to **Zarch** (David Braben, Acorn Archimedes, 1987), later por
 
 **Play it:** https://brew-your-own.github.io/zarch-in-chrome/
 
+The title screen plays the game by itself: a computer pilot defends the word ZARCH, written into the landscape, while the virus slowly eats it. The controls light up as the pilot uses them. Press **Fly** to take over, or pick a map with the arrows.
+
 ## Controls
 
 | Input | Action |
@@ -14,13 +16,13 @@ A browser tribute to **Zarch** (David Braben, Acorn Archimedes, 1987), later por
 | Middle button or E | Homing missile: locks onto the nearest enemy (one more each wave, they build up) |
 | Space | Smart bomb: clears every enemy around you (one per wave from wave 3) |
 | R | Auto-refuel: fly back to the pad and land (once per wave) |
-| Esc | Pause and open the settings panel |
+| Esc | Pause: settings, resume, or quit to the title |
 
 Land gently on the grey launch pad to refuel. The pad is also a safe haven: fighters hold fire while you sit on it.
 
 Each wave is a little harder than the last: enemies move and shoot faster and aim better, up to a cap.
 
-The pause panel has the map picker and lets you tune physics, enemies, difficulty, weapons, lives, colours, sound and music. Settings are saved in your browser.
+The settings panel, opened from the title screen or by pausing, has the map picker and lets you tune physics, enemies, difficulty, weapons, lives, colours, sound and music. Settings are saved in your browser.
 
 ## Development
 

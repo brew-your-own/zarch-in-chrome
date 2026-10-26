@@ -143,4 +143,10 @@ export class Hud {
     this.bannerFor = Math.max(0, this.bannerFor - dt);
     this.banner.classList.toggle('visible', this.bannerFor > 0);
   }
+
+  /** Takes down the "WAVE n" banner at once, e.g. when leaving a game for the title. */
+  hideBanner(): void {
+    this.bannerFor = 0;
+    this.banner.classList.remove('visible');
+  }
 }

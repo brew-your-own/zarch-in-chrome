@@ -146,12 +146,13 @@ export class SkyView {
 
   /**
    * Follows the camera; `craftX` turns the star band; `groundY` is the terrain height under
-   * the craft, for the fog range; `dt` drives the twinkle.
+   * the craft, for the fog range; `dt` drives the twinkle. `reach` pushes the fog further
+   * out, for a camera standing further back than usual.
    */
-  update(camera: THREE.Camera, craftX: number, groundY: number, dt: number): void {
+  update(camera: THREE.Camera, craftX: number, groundY: number, dt: number, reach = 0): void {
     const height = Math.max(0, camera.position.y - groundY);
-    this.fog.near = Math.hypot(FOG_NEAR, height);
-    this.fog.far = Math.hypot(FOG_FAR, height);
+    this.fog.near = Math.hypot(FOG_NEAR + reach, height);
+    this.fog.far = Math.hypot(FOG_FAR + reach, height);
     this.time += dt;
     this.starMaterial.uniforms.time!.value = this.time;
     this.dome.position.copy(camera.position);

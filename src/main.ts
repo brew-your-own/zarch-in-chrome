@@ -18,14 +18,17 @@ import { loadSettings, saveSettings } from './settings';
 import { createAutopilot, stepAutopilot, toggleAutopilot } from './sim/autopilot';
 import { createCannon, stepCannon } from './sim/cannon';
 import { spawnCraft, stepCraft } from './sim/craft';
+import { createDemoPilot, DEMO_ENEMIES, stepDemoPilot } from './sim/demoPilot';
 import { createEnemies, isOverrun, nearestEnemyDistance, stepEnemies, type EnemyEvent } from './sim/enemies';
 import { buildMap, findMap } from './sim/maps';
 import { createArsenal, detonateBomb, fireMissile, restock, stepMissiles, type WeaponEvent } from './sim/weapons';
 import type { Terrain } from './sim/terrain';
+import { buildTitleMap, lettersInfected, type TitleMap } from './sim/titleMap';
 import { GameOverScreen, recordScore, type GameOverStats } from './ui/gameOver';
 import { Hud } from './ui/hud';
 import { Scanner } from './ui/scanner';
 import { SettingsPanel } from './ui/settingsPanel';
+import { TitleScreen, type ControlSignals } from './ui/titleScreen';
 
 const STEP = 1 / 60;
 const MAX_FRAME = 0.25;
@@ -34,10 +37,18 @@ const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
 const hud = new Hud(document.querySelector<HTMLDivElement>('#hud')!, document.body);
 const scanner = new Scanner(document.querySelector<HTMLCanvasElement>('#scanner')!);
 const overlay = document.querySelector<HTMLDivElement>('#overlay')!;
+const hudColumn = document.querySelector<HTMLDivElement>('#hud-column')!;
 
 const settings = loadSettings();
 const { physics, plume, colours } = settings;
-let terrain: Terrain = buildMap(findMap(settings.mapId));
+/**
+ * The game runs in one of two modes. On the title screen (attract mode) the demo pilot flies
+ * the craft on the title map, unpaused and silent; in a game the player flies on `settings.mapId`.
+ */
+let mode: 'title' | 'game' = 'title';
+/** The title map, while on the title screen. */
+let title: TitleMap | null = buildTitleMap();
+let terrain: Terrain = title.terrain;
 const craft = spawnCraft(terrain, physics);
 const cannon = createCannon();
 const autopilot = createAutopilot();
@@ -56,6 +67,27 @@ const sound = new SoundEngine(settings.sound);
 let shotsHeard = 0;
 const newEnemies = () => createEnemies((Math.random() * 2 ** 32) >>> 0);
 const enemies = newEnemies();
+const newDemo = () => createDemoPilot((Math.random() * 2 ** 32) >>> 0);
+const demo = newDemo();
+/** The title screen's enemies, kept apart from the player's settings. */
+const demoEnemies = { ...DEMO_ENEMIES };
+/** Once this share of the title lettering is infected, the demo has lost and starts again. */
+const DEMO_LOST_AT = 0.9;
+/** Seconds the lost demo world stays up, with its banner, before it starts again; 0 while in play. */
+const DEMO_RESTART_DELAY = 3;
+let demoRestartIn = 0;
+/** The title camera stands this far back (times the usual offset), and leaves it slowly when a game starts. */
+const TITLE_PULL = 2.3;
+/** The title camera centres between the lettering and the craft, this share of the way to the craft... */
+const TITLE_FOLLOW = 0.4;
+/** ...and this far south of the lettering, so the word sits above the controls at the bottom. */
+const TITLE_SOUTH = 3.5;
+/** The drawn patch is centred this far south of the title focus, to cover the near ground the camera sees from back there. */
+const TITLE_PATCH_SOUTH = 5;
+/** How quickly the title camera's focus follows (1/s). */
+const TITLE_FOCUS_RATE = 1.2;
+/** Controls the demo pilot used during this frame's sim steps, for the title screen to light. */
+let demoSignals: ControlSignals = {};
 /** Simulated seconds, frozen while paused; drives the seeders' spin. */
 let simTime = 0;
 /** Seconds of unpaused play, for cosmetic motion such as the waves. */
@@ -98,7 +130,7 @@ function buildViews() {
     (old.material as THREE.Material).dispose();
     if (old instanceof THREE.InstancedMesh) old.dispose();
   }
-  palette = new Palette(terrain, colours);
+  palette = new Palette(terrain, colours, title?.letters ?? null);
   terrainView = new TerrainView(terrain, palette);
   treeView = new TreeView(terrain, palette);
   craftView = new CraftView(terrain, physics);
@@ -139,17 +171,30 @@ function buildViews() {
 }
 buildViews();
 
-let started = false;
 /** Set when the virus takes over; the sim stays frozen until a new game starts. */
 let gameOver: { stats: GameOverStats; newBest: boolean } | null = null;
 
-const showPanel = () => panel.show(terrain, palette, craft.pos, started && !gameOver, [...enemies.seeders, ...enemies.fighters]);
+const showPanel = () => panel.show('paused', terrain, palette, craft.pos, [...enemies.seeders, ...enemies.fighters]);
+
+/** The map picked for the next game, for the settings panel's minimap while on the title screen. */
+const previews = new Map<string, { terrain: Terrain; palette: Palette }>();
+function showTitleSettings() {
+  let preview = previews.get(settings.mapId);
+  if (!preview) {
+    const t = buildMap(findMap(settings.mapId));
+    preview = { terrain: t, palette: new Palette(t, colours) };
+    previews.set(settings.mapId, preview);
+  }
+  titleScreen.hide();
+  panel.show('title', preview.terrain, preview.palette);
+}
 
 const input = new MouseInput(canvas, (locked) => {
   if (locked) {
-    started = true;
     panel.hide();
     gameOverScreen.hide();
+  } else if (mode === 'title') {
+    // The title screen stays up; nothing to pause.
   } else if (gameOver) {
     gameOverScreen.show(gameOver.stats, gameOver.newBest);
   } else {
@@ -157,8 +202,50 @@ const input = new MouseInput(canvas, (locked) => {
   }
 });
 
+/** A fresh title world: the title map, with the demo pilot on the pad and new enemies. */
+function newTitleWorld() {
+  mode = 'title';
+  title = buildTitleMap();
+  terrain = title.terrain;
+  Object.assign(craft, spawnCraft(terrain, physics));
+  Object.assign(cannon, createCannon());
+  Object.assign(autopilot, createAutopilot());
+  Object.assign(arsenal, createArsenal());
+  Object.assign(enemies, newEnemies());
+  Object.assign(demo, newDemo());
+  demoRestartIn = 0;
+  gameOver = null;
+  buildViews();
+  resetMotion();
+  titleScreen.showLost(false);
+}
+
+/** Leaves any game for the title screen. */
+function enterTitle() {
+  newTitleWorld();
+  if (input.locked) document.exitPointerLock();
+  rig.frame(TITLE_PULL);
+  hud.hideBanner();
+  hudColumn.classList.add('hidden');
+  panel.hide();
+  gameOverScreen.hide();
+  titleScreen.show();
+}
+
+/** Starts a game on the chosen map; the camera swoops down from the title view. */
+function startGame() {
+  newGame(settings.mapId);
+  rig.frame(1);
+  titleScreen.hide();
+  hudColumn.classList.remove('hidden');
+  sound.resume(); // a click: browsers only allow audio to start from a user gesture
+  input.requestLock();
+}
+
 /** Fresh world on `mapId`: terrain (trees regrown, no infection), craft, cannon and enemies. */
 function newGame(mapId: string) {
+  mode = 'game';
+  title = null;
   terrain = buildMap(findMap(mapId));
   Object.assign(craft, spawnCraft(terrain, physics));
   Object.assign(cannon, createCannon());
@@ -178,18 +265,28 @@ function endGame(reason: GameOverStats['reason']) {
   document.exitPointerLock();
 }
 
+const closeTitleSettings = () => {
+  panel.hide();
+  titleScreen.show();
+};
+
 const panel = new SettingsPanel(overlay, settings, {
-  onFly: () => {
-    if (gameOver) newGame(settings.mapId);
+  onBack: closeTitleSettings,
+  onResume: () => {
     sound.resume(); // a click: browsers only allow audio to start from a user gesture
     input.requestLock();
   },
+  onQuit: enterTitle,
   onChange: () => saveSettings(settings),
   onMapChange: (mapId) => {
     settings.mapId = mapId;
     saveSettings(settings);
-    newGame(mapId);
-    showPanel();
+    if (panel.openedFrom === 'title') {
+      showTitleSettings();
+    } else {
+      newGame(mapId);
+      showPanel();
+    }
   },
 });
 
@@ -200,17 +297,24 @@ const gameOverScreen = new GameOverScreen(document.querySelector<HTMLDivElement>
     gameOverScreen.hide();
     input.requestLock();
   },
-  onSettings: () => {
-    gameOverScreen.hide();
-    showPanel();
+  onTitle: enterTitle,
+});
+
+const titleScreen = new TitleScreen(document.querySelector<HTMLDivElement>('#title')!, () => settings.mapId, {
+  onFly: startGame,
+  onSettings: showTitleSettings,
+  onMapChange: (mapId) => {
+    settings.mapId = mapId;
+    saveSettings(settings);
   },
 });
-showPanel();
 
 // R engages auto-refuel (once per wave), or hands control back if it is flying.
 // Space sets off a smart bomb; E fires a homing missile (as does the middle button).
 document.addEventListener('keydown', (e) => {
-  if (e.repeat || !input.locked || gameOver) return;
+  // Esc closes the settings opened from the title (in a game, Esc releases the pointer, which pauses).
+  if (e.code === 'Escape' && panel.visible && panel.openedFrom === 'title') closeTitleSettings();
+  if (e.repeat || !input.locked || gameOver || mode !== 'game') return;
   if (e.code === 'KeyR') {
     const wasActive = autopilot.active;
     if (toggleAutopilot(autopilot, craft, terrain, enemies.wave, settings.autopilot) && !wasActive) sound.autopilot();
@@ -226,7 +330,10 @@ document.addEventListener('keydown', (e) => {
 // Setting `zarch.input.locked = true` runs the simulation without pointer lock.
 if (import.meta.env.DEV) {
   Object.assign(window, {
-    zarch: { craft, cannon, autopilot, arsenal, enemies, input, settings, sound, get lives() { return lives; }, get terrain() { return terrain; }, get gameOver() { return gameOver; } },
+    zarch: {
+      craft, cannon, autopilot, arsenal, enemies, input, settings, sound, demo,
+      get mode() { return mode; }, get lives() { return lives; }, get terrain() { return terrain; }, get gameOver() { return gameOver; },
+    },
   });
 }
 
@@ -240,15 +347,47 @@ resize();
 
 const prevPos = { ...craft.pos };
 const renderPos = { ...craft.pos };
+/** On the title screen, where the camera and the drawn patch centre (smoothed); in a game, the craft. */
+const focus = { ...craft.pos };
 let accumulator = 0;
 let last = performance.now();
 
-/** Snaps interpolation and camera to the craft, e.g. after a teleport to a new map. */
+/** Where the title camera heads for: between the lettering and the craft, south of the word. */
+function titleFocus(map: TitleMap, pos: { x: number; y: number; z: number }) {
+  const c = map.centre;
+  return {
+    x: c.x + TITLE_FOLLOW * terrain.delta(c.x, pos.x),
+    y: c.y + 1 + TITLE_FOLLOW * (pos.y - c.y - 1),
+    z: c.z + TITLE_SOUTH + TITLE_FOLLOW * terrain.delta(c.z + TITLE_SOUTH, pos.z),
+  };
+}
+
+/** Snaps interpolation and camera to the craft (or the title view), e.g. after a teleport to a new map. */
 function resetMotion() {
   Object.assign(prevPos, craft.pos);
-  rig.snap(craft.pos.y);
+  Object.assign(focus, title ? titleFocus(title, craft.pos) : craft.pos);
+  rig.snap(focus.y);
   accumulator = 0;
 }
+
+/**
+ * Keeps the demo craft on the copy of the world nearest the lettering. Its position is
+ * unwrapped, like a player's, so after a chase across the wrap it is moved back by a whole
+ * map width, along with its bullets and missiles.
+ */
+function recentreDemo(map: TitleMap) {
+  const n = terrain.size;
+  const sx = Math.round((map.centre.x - craft.pos.x) / n) * n;
+  const sz = Math.round((map.centre.z - craft.pos.z) / n) * n;
+  if (sx === 0 && sz === 0) return;
+  for (const p of [craft.pos, prevPos, ...cannon.bullets.map((b) => b.pos), ...arsenal.inFlight.map((m) => m.pos)]) {
+    p.x += sx;
+    p.z += sz;
+  }
+}
+
+/** The sound engine during a game; null on the title screen, which runs silent. */
+const sfx = () => (mode === 'game' ? sound : null);
 
 /** Explosions, effects and sounds for what the enemies and special weapons did this step. */
 function showEvent(event: EnemyEvent | WeaponEvent) {
@@ -256,35 +395,35 @@ function showEvent(event: EnemyEvent | WeaponEvent) {
     case 'seederDestroyed': {
       const { geometry, matrix } = seederView.shape(event.seeder, craft.pos, simTime);
       effectsView.explode(geometry, matrix, event.seeder.vel);
-      sound.explosion('seeder', distanceFromCraft(event.seeder.pos));
+      sfx()?.explosion('seeder', distanceFromCraft(event.seeder.pos));
       rig.shake(0.5, distanceFromCraft(event.seeder.pos));
       break;
     }
     case 'fighterDestroyed': {
       const { geometry, matrix } = fighterView.shape(event.fighter, craft.pos);
       effectsView.explode(geometry, matrix, event.fighter.vel);
-      sound.explosion('fighter', distanceFromCraft(event.fighter.pos));
+      sfx()?.explosion('fighter', distanceFromCraft(event.fighter.pos));
       rig.shake(0.55, distanceFromCraft(event.fighter.pos));
       break;
     }
     case 'fighterFired':
-      sound.enemyShot(distanceFromCraft(event.pos));
+      sfx()?.enemyShot(distanceFromCraft(event.pos));
       break;
     case 'waveStarted':
       restock(arsenal, event.wave, settings.weapons);
       break;
     case 'bombDetonated':
       effectsView.bomb(event.pos, event.radius);
-      sound.bomb();
+      sfx()?.bomb();
       rig.shake(1);
       flash();
       break;
     case 'missileLaunched':
-      sound.missile();
+      sfx()?.missile();
       break;
     case 'missileSpent':
       effectsView.pop(event.pos);
-      sound.explosion('tree', distanceFromCraft(event.pos));
+      sfx()?.explosion('tree', distanceFromCraft(event.pos));
       break;
   }
 }
@@ -306,7 +445,7 @@ function distanceFromCraft(pos: { x: number; z: number }): number {
 
 /** Proximity alarm level (0-1) for the nearest seeder; silent while paused, over or wrecked. */
 function proximityAlert(): number {
-  if (!input.locked || gameOver || craft.status === 'crashed') return 0;
+  if (mode !== 'game' || !input.locked || gameOver || craft.status === 'crashed') return 0;
   return proximityLevel(nearestEnemyDistance(enemies, craft.pos, terrain), settings.sound.alertDistance);
 }
 
@@ -315,7 +454,7 @@ function proximityAlert(): number {
  * as the virus spreads, as an enemy closes in (the proximity alarm level) and on the last life.
  */
 function musicIntensity(alert: number): number {
-  if (!input.locked || gameOver) return 0;
+  if (mode !== 'game' || !input.locked || gameOver) return 0;
   const virus = Math.min(1, terrain.infectedFraction() / Math.max(0.01, settings.enemies.overrunAt));
   const enemiesAbout = enemies.seeders.length + enemies.fighters.length > 0 ? 0.15 : 0;
   return 0.2 + enemiesAbout + 0.35 * virus + 0.4 * alert + (lives === 1 ? 0.1 : 0);
@@ -324,12 +463,13 @@ function musicIntensity(alert: number): number {
 /** Continuous and per-shot sounds for this frame (explosions play from the sim events). */
 function playSounds(alert: number, dt: number) {
   sound.update();
-  sound.music(musicIntensity(alert), !input.locked || gameOver !== null, dt);
-  sound.thruster(input.locked && !gameOver && craft.thrusting);
+  const playing = mode === 'game' && input.locked && !gameOver;
+  sound.music(musicIntensity(alert), !playing, dt);
+  sound.thruster(playing && craft.thrusting);
   sound.proximity(alert);
   if (cannon.shots < shotsHeard) shotsHeard = 0; // a new game reset the cannon
   // At most two blips per frame, so a long frame doesn't stack a burst of shots.
-  for (let k = 0; k < Math.min(2, cannon.shots - shotsHeard); k++) sound.cannon();
+  if (mode === 'game') for (let k = 0; k < Math.min(2, cannon.shots - shotsHeard); k++) sound.cannon();
   shotsHeard = cannon.shots;
 }
 
@@ -337,63 +477,95 @@ function frame(now: number) {
   const elapsed = Math.min(MAX_FRAME, (now - last) / 1000);
   last = now;
 
-  if (input.locked && !gameOver) {
+  // The title screen's demo never pauses; a game runs while the pointer is locked.
+  const running = mode === 'title' || (input.locked && !gameOver);
+  demoSignals = {};
+  if (running) {
     accumulator += elapsed;
     while (accumulator >= STEP && !gameOver) {
       Object.assign(prevPos, craft.pos);
-      // Mouse movement is ignored while landed, so every liftoff starts from a centred aim.
-      if (craft.status === 'landed') input.centre();
       const wasCrashed = craft.status === 'crashed';
       simTime += STEP;
-      const wasAuto = autopilot.active;
-      const auto = stepAutopilot(autopilot, craft, terrain, physics, settings.autopilot);
-      if (auto) {
-        // Keep the mouse aim with the autopilot's, so taking back control doesn't jolt the craft.
-        input.aimX = auto.aimX;
-        input.aimY = auto.aimY;
+      let fire: boolean;
+      if (title) {
+        const command = stepDemoPilot(demo, craft, enemies, arsenal, terrain, physics, settings.weapons, title.centre, STEP);
+        stepCraft(craft, command.input, terrain, STEP, physics);
+        fire = command.fire;
+        bombRequested = command.bomb;
+        input.missile = command.missile;
+        const flying = craft.status === 'flying';
+        demoSignals.tilt ||= flying && Math.hypot(command.input.aimX, command.input.aimY) > 0.2;
+        demoSignals.thrust ||= craft.thrusting;
+        demoSignals.fire ||= command.fire;
+        demoSignals.refuel ||= flying && command.mode === 'refuel';
+      } else {
+        // Mouse movement is ignored while landed, so every liftoff starts from a centred aim.
+        if (craft.status === 'landed') input.centre();
+        const wasAuto = autopilot.active;
+        const auto = stepAutopilot(autopilot, craft, terrain, physics, settings.autopilot);
+        if (auto) {
+          // Keep the mouse aim with the autopilot's, so taking back control doesn't jolt the craft.
+          input.aimX = auto.aimX;
+          input.aimY = auto.aimY;
+        }
+        if (wasAuto && !auto) thrustHeldOver = true; // landed on the pad (a cancel with R hands over at once)
+        if (!input.thrust) thrustHeldOver = false;
+        const manual = input.snapshot();
+        if (thrustHeldOver) manual.thrust = false;
+        stepCraft(craft, auto ?? manual, terrain, STEP, physics);
+        fire = input.fire;
       }
-      if (wasAuto && !auto) thrustHeldOver = true; // landed on the pad (a cancel with R hands over at once)
-      if (!input.thrust) thrustHeldOver = false;
-      const manual = input.snapshot();
-      if (thrustHeldOver) manual.thrust = false;
-      stepCraft(craft, auto ?? manual, terrain, STEP, physics);
-      for (const impact of stepCannon(cannon, craft, input.fire, terrain, STEP, physics)) {
+      for (const impact of stepCannon(cannon, craft, fire, terrain, STEP, physics)) {
         effectsView.impact(impact);
         if (impact.kind === 'sea' && splashQuiet <= 0) {
-          sound.splash(0.1, distanceFromCraft(impact.pos));
+          sfx()?.splash(0.1, distanceFromCraft(impact.pos));
           splashQuiet = SPLASH_GAP;
         }
         if (impact.tree) {
           const { geometry, matrix } = treeView.shape(impact.tree.i, impact.tree.j, impact.tree.kind);
           effectsView.destroyTree(geometry, matrix, impact);
-          sound.explosion('tree', distanceFromCraft(impact.pos));
+          sfx()?.explosion('tree', distanceFromCraft(impact.pos));
           rig.shake(0.2, distanceFromCraft(impact.pos));
           geometry.dispose();
         }
       }
-      for (const event of stepEnemies(enemies, craft, cannon.bullets, terrain, STEP, settings.enemies, physics)) showEvent(event);
+      const rules = title ? demoEnemies : settings.enemies;
+      for (const event of stepEnemies(enemies, craft, cannon.bullets, terrain, STEP, rules, physics)) showEvent(event);
       if (bombRequested) {
         bombRequested = false;
-        detonateBomb(arsenal, craft, enemies, terrain, settings.weapons)?.forEach(showEvent);
+        const blast = detonateBomb(arsenal, craft, enemies, terrain, settings.weapons);
+        blast?.forEach(showEvent);
+        demoSignals.bomb ||= blast !== null;
       }
       if (input.missile) {
         input.missile = false;
         const launch = fireMissile(arsenal, craft, enemies, terrain, physics);
         if (launch) showEvent(launch);
+        demoSignals.missile ||= launch !== null;
       }
       for (const event of stepMissiles(arsenal, enemies, terrain, STEP, settings.weapons)) showEvent(event);
       if (!wasCrashed && craft.status === 'crashed') {
         // The mesh still holds its last pose, which is where the pieces start from.
         effectsView.explode(craftView.craft.geometry, craftView.craft.matrixWorld, craft.vel);
-        sound.explosion('craft');
-        if (terrain.tileTypeAt(craft.pos.x, craft.pos.z) === 'sea') sound.splash(1, 0);
+        sfx()?.explosion('craft');
+        if (terrain.tileTypeAt(craft.pos.x, craft.pos.z) === 'sea') sfx()?.splash(1, 0);
         rig.shake(0.9);
-        lives--;
+        if (!title) lives--;
       }
       accumulator -= STEP;
-      if (isOverrun(terrain, settings.enemies)) endGame('virus');
+      if (title) {
+        recentreDemo(title);
+        if (demoRestartIn === 0 && lettersInfected(terrain, title.letters) >= DEMO_LOST_AT) {
+          demoRestartIn = DEMO_RESTART_DELAY;
+          titleScreen.showLost(true);
+        }
+      } else if (isOverrun(terrain, settings.enemies)) endGame('virus');
       else if (lives <= 0 && craft.status === 'crashed' && craft.respawnIn <= LAST_WRECK_PAUSE) endGame('lives');
     }
+  }
+  if (demoRestartIn > 0) {
+    demoRestartIn = Math.max(0, demoRestartIn - elapsed);
+    if (demoRestartIn === 0) newTitleWorld();
   }
 
   // Interpolate between the last two simulation states for smooth motion at any refresh rate.
@@ -402,35 +574,53 @@ function frame(now: number) {
   renderPos.y = prevPos.y + (craft.pos.y - prevPos.y) * alpha;
   renderPos.z = prevPos.z + (craft.pos.z - prevPos.z) * alpha;
 
-  const effectsDt = input.locked ? elapsed : 0;
-  const groundY = terrain.heightAt(renderPos.x, renderPos.z);
-  rig.update(renderPos, craft, groundY, elapsed, effectsDt);
+  const effectsDt = running ? elapsed : 0;
+  // A game centres on the craft. The title camera eases about between the lettering and the
+  // craft, and the drawn patch sits further south, since the camera stands further back.
+  if (title) {
+    const target = titleFocus(title, renderPos);
+    const k = Math.min(1, elapsed * TITLE_FOCUS_RATE);
+    focus.x += (target.x - focus.x) * k;
+    focus.y += (target.y - focus.y) * k;
+    focus.z += (target.z - focus.z) * k;
+  } else {
+    Object.assign(focus, renderPos);
+  }
+  const patch = title ? { x: focus.x, z: focus.z + TITLE_PATCH_SOUTH } : focus;
+  const groundY = terrain.heightAt(focus.x, focus.z);
+  rig.update(focus, craft, groundY, elapsed, effectsDt);
 
-  skyView.update(camera, renderPos.x, groundY, elapsed);
+  skyView.update(camera, focus.x, groundY, elapsed, rig.extraReach);
   waveTime += effectsDt;
-  terrainView.update(renderPos.x, renderPos.z, waveTime);
-  treeView.update(renderPos.x, renderPos.z);
+  terrainView.update(patch.x, patch.z, waveTime);
+  treeView.update(patch.x, patch.z);
   craftView.update(craft, renderPos);
   exhaustView.update(craft, craftView.craft.matrixWorld, effectsDt);
   bulletView.update(cannon.bullets);
   missileView.update(arsenal.inFlight);
   if (effectsDt > 0) for (const m of arsenal.inFlight) effectsView.missileTrail(m.pos);
-  shotView.update(enemies.shots, { terrain, focus: renderPos });
-  fighterView.update(enemies, renderPos, effectsDt);
-  seederView.update(enemies, renderPos, simTime);
+  shotView.update(enemies.shots, { terrain, focus: patch });
+  fighterView.update(enemies, patch, effectsDt);
+  seederView.update(enemies, patch, simTime);
   const sunk = effectsView.update(effectsDt, physics.gravity);
   splashQuiet -= elapsed;
   if (sunk.length > 0 && splashQuiet <= 0) {
-    sound.splash(0.25, distanceFromCraft(sunk[0]!));
+    sfx()?.splash(0.25, distanceFromCraft(sunk[0]!));
     splashQuiet = SPLASH_GAP;
   }
   renderer.render(scene, camera);
 
   const alert = proximityAlert();
-  hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, settings.autopilot, alert, lives, arsenal, effectsDt);
+  if (title) {
+    titleScreen.update(demoSignals, elapsed);
+  } else {
+    hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, settings.autopilot, alert, lives, arsenal, effectsDt);
+    scanner.update(terrain, palette, craft, enemies, settings.sound.alertDistance, alert, elapsed);
+  }
   playSounds(alert, elapsed);
-  scanner.update(terrain, palette, craft, enemies, settings.sound.alertDistance, alert, elapsed);
 
   requestAnimationFrame(frame);
 }
+enterTitle();
+rig.frame(TITLE_PULL, true);
 requestAnimationFrame(frame);

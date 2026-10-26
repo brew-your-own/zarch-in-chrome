@@ -25,6 +25,8 @@ const LEAN_RATE = 4;
 const MAX_ZOOM_OUT = 0.5;
 const ZOOM_ALTITUDE = 12;
 const ZOOM_RATE = 1.5;
+/** How quickly a change of `frame` eases in (1/s); slow, so leaving the title is a swoop. */
+const FRAME_RATE = 1.2;
 /** Shake: trauma (0-1) decays at this rate per second; the offset is trauma² times these. */
 const TRAUMA_DECAY = 1.4;
 const SHAKE_OFFSET = 0.3;
@@ -53,6 +55,8 @@ export class CameraRig {
   private roll = 0;
   private trauma = 0;
   private time = 0;
+  private pull = 1;
+  private pullTarget = 1;
 
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
@@ -65,6 +69,20 @@ export class CameraRig {
     this.altitude = 0;
     this.roll = 0;
     this.trauma = 0;
+  }
+
+  /**
+   * Sets how far back the camera sits, as a multiple of the usual offset: the title screen
+   * stands well back, the game at 1. The change eases in, unless `now` is set.
+   */
+  frame(pull: number, now = false): void {
+    this.pullTarget = pull;
+    if (now) this.pull = pull;
+  }
+
+  /** How much further back (horizontally) than usual `frame` has put the camera right now. */
+  get extraReach(): number {
+    return (this.pull - 1) * OFFSET.z;
   }
 
   /** Adds shake for an explosion of `strength` (0-1) `distance` tiles from the craft. */
@@ -80,6 +98,7 @@ export class CameraRig {
     this.altitude += (altitude - this.altitude) * follow(ZOOM_RATE);
     const lean = craft.status === 'flying' ? -craft.tilt.x * LEAN * this.settings.lean : 0;
     this.roll += (lean - this.roll) * follow(LEAN_RATE);
+    this.pull += (this.pullTarget - this.pull) * follow(FRAME_RATE);
 
     // Shake only moves on while the game runs, so a paused screen holds still.
     this.time += dt;
@@ -88,7 +107,7 @@ export class CameraRig {
     const t = this.time;
     const wobble = (a: number, b: number, phase: number) => (Math.sin(t * a + phase) + Math.sin(t * b + phase * 2.3)) / 2;
 
-    const zoom = zoomFactor(this.altitude, this.settings.zoom);
+    const zoom = zoomFactor(this.altitude, this.settings.zoom) * this.pull;
     this.camera.position.set(
       pos.x + OFFSET.x * zoom + wobble(37, 53, 0.4) * SHAKE_OFFSET * s,
       this.y + OFFSET.y * zoom + wobble(41, 59, 1.7) * SHAKE_OFFSET * s,
