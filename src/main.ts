@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { proximityLevel, SoundEngine } from './audio/sound';
-import { MouseInput } from './input';
+import { PlayerInput } from './input';
 import { BomberView } from './render/bomberView';
 import { BuildingView } from './render/buildingView';
 import { BulletView, FIGHTER_TRACER } from './render/bulletView';
@@ -214,7 +214,7 @@ function showTitleSettings() {
   panel.show('title', preview.terrain, preview.palette);
 }
 
-const input = new MouseInput(canvas, (locked) => {
+const input = new PlayerInput(canvas, (locked) => {
   if (locked) {
     guide.hide();
     panel.hide();
@@ -639,21 +639,23 @@ function frame(now: number) {
         craft.invulnerable = debug.invulnerable;
         if (debug.infiniteFuel) craft.fuel = physics.maxFuel;
         if (debug.invulnerable || debug.infiniteFuel) debugUsed = true;
+        input.steer(STEP, settings.controls, craft);
         // Mouse movement is ignored while landed, so every liftoff starts from a centred aim.
         if (craft.status === 'landed') input.centre();
         const wasAuto = autopilot.active;
         const auto = stepAutopilot(autopilot, craft, terrain, physics, settings.autopilot);
         if (auto) {
+          input.releaseKeyAim();
           // Keep the mouse aim with the autopilot's, so taking back control doesn't jolt the craft.
           input.aimX = auto.aimX;
           input.aimY = auto.aimY;
         }
         if (wasAuto && !auto) thrustHeldOver = true; // landed on the pad (a cancel with R hands over at once)
-        if (!input.thrust) thrustHeldOver = false;
+        if (!input.thrusting()) thrustHeldOver = false;
         const manual = input.snapshot();
         if (thrustHeldOver) manual.thrust = false;
         stepCraft(craft, auto ?? manual, terrain, STEP, physics);
-        fire = input.fire;
+        fire = input.firing();
       }
       for (const impact of stepCannon(cannon, craft, fire, terrain, STEP, physics)) {
         effectsView.impact(impact);

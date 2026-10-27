@@ -17,6 +17,8 @@ export interface CraftInput {
   aimX: number;
   aimY: number;
   thrust: boolean;
+  /** Keyboard flying's heading: the nose turns to it while the craft is (nearly) level. A lean still sets the nose. */
+  heading?: number;
 }
 
 export type CraftStatus = 'flying' | 'landed' | 'crashed';
@@ -168,6 +170,8 @@ export function stepCraft(
   state.tilt.z += (tz - state.tilt.z) * k;
   if (Math.hypot(state.tilt.x, state.tilt.z) > 0.05) {
     state.heading = Math.atan2(state.tilt.x, -state.tilt.z);
+  } else if (input.heading !== undefined) {
+    state.heading = input.heading;
   }
 
   // Forces.

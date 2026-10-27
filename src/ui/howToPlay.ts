@@ -36,6 +36,7 @@ const CARDS: Card[] = [
     lines: () => [
       [{ key: 'MOUSE' }, ' tilts the craft: it leans the way you push, further the further you push.'],
       [{ key: 'LEFT' }, ' fires the thruster. It pushes along the craft\'s lean, so lean a little to move and keep thrusting to stay up: gravity never lets go.'],
+      ['Or fly by keyboard: ', { key: 'A' }, { key: 'D' }, ' turn the nose, ', { key: 'W' }, ' leans along it, ', { key: 'S' }, ' brakes, ', { key: 'J' }, ' or ', { key: 'SHIFT' }, ' thrusts, ', { key: 'K' }, ' fires. The arrows work too.'],
       ['The mouse is captured while you fly. ', { key: 'ESC' }, ' pauses and lets it go.'],
     ],
   },

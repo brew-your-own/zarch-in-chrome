@@ -13,12 +13,16 @@ The title screen plays the game by itself: a computer pilot defends the word ZAR
 | Input | Action |
 |---|---|
 | Move the mouse | Tilt the craft (it leans towards the pointer; thrust pushes along its tilt) |
-| Left button | Thrust |
-| Right button | Fire |
+| A / D (or ← / →) | Turn the nose (keyboard flying) |
+| W / S (or ↑ / ↓) | Lean forward along the nose / brake (keyboard flying) |
+| Left button, J or Shift | Thrust |
+| Right button or K | Fire |
 | Middle button or E | Homing missile: locks onto the nearest enemy (one more each wave, they build up) |
 | Space | Smart bomb: clears every enemy around you (one per wave from wave 3) |
 | R | Auto-refuel: fly back to the pad and land (once per wave) |
 | Esc | Pause: settings, resume, or quit to the title |
+
+To fly by keyboard, turn with A and D, hold W to lean forward along the nose and S to brake (it leans against your drift, so keep thrusting while you stop). Let go and the craft levels out. How far and how fast it leans, and how fast it turns, are under Keyboard flying in the settings. Moving the mouse takes over from the keys at any time.
 
 Land gently on the grey launch pad to refuel. The pad is also a safe haven: fighters hold fire while you sit on it.
 

@@ -1,5 +1,6 @@
 import { DEFAULT_SOUND } from '../audio/sound';
 import { DEFAULT_CAMERA } from '../render/cameraRig';
+import { DEFAULT_CONTROLS } from '../input';
 import { drawMinimap } from '../render/minimap';
 import { COLOUR_PRESETS, DEFAULT_COLOURS, Palette } from '../render/palette';
 import { DEFAULT_PLUME } from '../render/exhaustView';
@@ -98,6 +99,12 @@ const CAMERA_SLIDERS: SliderSpec<Settings['camera']>[] = [
   { key: 'lean', label: 'Lean into turns', min: 0, max: 200, step: 10, unit: '%', scale: 100 },
   { key: 'shake', label: 'Explosion shake', min: 0, max: 200, step: 10, unit: '%', scale: 100 },
   { key: 'zoom', label: 'Zoom out with height', min: 0, max: 200, step: 10, unit: '%', scale: 100 },
+];
+
+const CONTROL_SLIDERS: SliderSpec<Settings['controls']>[] = [
+  { key: 'keyTilt', label: 'Forward lean', min: 20, max: 100, step: 5, unit: '%', scale: 100 },
+  { key: 'keyResponse', label: 'Lean speed', min: 1, max: 10, step: 0.5, unit: '/s' },
+  { key: 'keyTurnRate', label: 'Turn rate', min: 45, max: 360, step: 15, unit: '°/s', scale: DEG },
 ];
 
 const COLOUR_SLIDERS: SliderSpec<Settings['colours']>[] = [
@@ -245,6 +252,9 @@ export class SettingsPanel {
     tuning.append(el('p', 'note', 'Smart bombs are handed out each wave and don\'t carry over; missiles build up (up to 9). New stock amounts apply from the next wave.'));
     tuning.append(el('h2', undefined, 'Assists'));
     tuning.append(this.toggle(settings.autopilot, 'enabled', 'Auto-refuel [R]', 'Once per wave, flies you back to the pad and lands.'));
+    tuning.append(el('h2', undefined, 'Keyboard flying'));
+    for (const spec of CONTROL_SLIDERS) tuning.append(this.slider(settings.controls, spec));
+    tuning.append(el('p', 'note', 'A/D or ←/→ turn the nose, W or ↑ leans along it, S or ↓ brakes; J or Shift thrusts, K fires. Forward lean is how far W tips the craft, as a share of full tilt; lean speed is how quickly it gets there and back to level.'));
     tuning.append(el('h2', undefined, 'Thruster plume'));
     for (const spec of PLUME_SLIDERS) tuning.append(this.slider(settings.plume, spec));
     tuning.append(el('h2', undefined, 'Camera'));
@@ -276,6 +286,7 @@ export class SettingsPanel {
       Object.assign(settings.autopilot, DEFAULT_AUTOPILOT);
       Object.assign(settings.camera, DEFAULT_CAMERA);
       Object.assign(settings.sound, DEFAULT_SOUND);
+      Object.assign(settings.controls, DEFAULT_CONTROLS);
       this.refresh();
       handlers.onChange();
     });
@@ -286,7 +297,7 @@ export class SettingsPanel {
     panel.append(
       header,
       columns,
-      el('p', 'help', 'Move mouse: tilt craft · Left button: thrust · Right button: fire · Middle button / E: missile · Space: smart bomb · R: auto-refuel · Esc: pause / close'),
+      el('p', 'help', 'Move mouse: tilt craft (or A/D turn, W lean, S brake) · Left button, J or Shift: thrust · Right button or K: fire · Middle button / E: missile · Space: smart bomb · R: auto-refuel · Esc: pause / close'),
     );
     root.append(panel);
     this.highlightMap();

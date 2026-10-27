@@ -70,6 +70,14 @@ describe('craft', () => {
     expect(s.vel.z).toBeLessThan(0);
   });
 
+  it('turns its nose to a keyboard heading only while level', () => {
+    const t = flatWorld();
+    const level = run(spawnCraft(t), { ...IDLE, heading: 1 }, t, 0.1);
+    expect(level.heading).toBe(1);
+    const leaning = run(airborne(t, 4, 3, 4), { aimX: 0, aimY: 1, thrust: false, heading: 1 }, t, 0.5);
+    expect(leaning.heading).toBeCloseTo(0);
+  });
+
   it('caps the tilt when the aim leaves the unit disk', () => {
     const t = flatWorld();
     const s = run(airborne(t, 3, 10, 3), { aimX: 5, aimY: 0, thrust: false }, t, 2);
