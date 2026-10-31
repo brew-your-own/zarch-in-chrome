@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CONTROLS, easeAim, keyAimTarget, type SteerKeys } from './input';
+import { DEFAULT_CONTROLS, easeAim, keyAimTarget, keyBindings, type SteerKeys } from './input';
 
 const STEP = 1 / 60;
 const STILL = { x: 0, z: 0 };
@@ -49,5 +49,25 @@ describe('keyboard flying', () => {
     const aim = { aimX: 0.59, aimY: 0 };
     easeAim(aim, { aimX: 0.6, aimY: 0 }, 1, DEFAULT_CONTROLS);
     expect(aim.aimX).toBeCloseTo(0.6);
+  });
+});
+
+describe('control schemes', () => {
+  it('moves thrust to Space and the smart bomb to Q with a trackpad, and turns off key steering', () => {
+    const mouse = keyBindings(DEFAULT_CONTROLS);
+    expect(mouse.bomb).toContain('Space');
+    expect(mouse.steering).toBe(true);
+    const trackpad = keyBindings({ ...DEFAULT_CONTROLS, trackpad: true });
+    expect(trackpad.thrust).toContain('Space');
+    expect(trackpad.bomb).not.toContain('Space');
+    expect(trackpad.steering).toBe(false);
+  });
+
+  it('never binds one key to two things in a scheme', () => {
+    for (const trackpad of [false, true]) {
+      const b = keyBindings({ ...DEFAULT_CONTROLS, trackpad });
+      const all = [...b.thrust, ...b.fire, ...b.missile, ...b.bomb, ...b.level, 'KeyR', 'Escape'];
+      expect(new Set(all).size).toBe(all.length);
+    }
   });
 });

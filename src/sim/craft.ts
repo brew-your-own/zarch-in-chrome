@@ -80,7 +80,7 @@ export const DEFAULT_PHYSICS: Readonly<Physics> = Object.freeze({
   gravity: 2.5,
   thrust: 6.5,
   drag: 0.2,
-  maxTilt: (70 * Math.PI) / 180,
+  maxTilt: (90 * Math.PI) / 180,
   attitudeRate: 8,
   maxFuel: 100,
   fuelBurn: 4,

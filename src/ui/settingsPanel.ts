@@ -1,5 +1,6 @@
 import { DEFAULT_SOUND } from '../audio/sound';
 import { DEFAULT_CAMERA } from '../render/cameraRig';
+import { DEFAULT_SHIP } from '../render/craftView';
 import { DEFAULT_CONTROLS } from '../input';
 import { drawMinimap } from '../render/minimap';
 import { COLOUR_PRESETS, DEFAULT_COLOURS, Palette } from '../render/palette';
@@ -11,6 +12,7 @@ import { DEFAULT_WEAPONS } from '../sim/weapons';
 import { buildMap, MAPS } from '../sim/maps';
 import type { Terrain } from '../sim/terrain';
 import type { Settings } from '../settings';
+import { controlsHelp } from './controls';
 import { githubLink } from './github';
 
 const DEG = 180 / Math.PI;
@@ -29,7 +31,7 @@ interface SliderSpec<T> {
 const PHYSICS_SLIDERS: SliderSpec<Settings['physics']>[] = [
   { key: 'gravity', label: 'Gravity', min: 0.5, max: 8, step: 0.1, unit: 'u/s²' },
   { key: 'thrust', label: 'Thrust', min: 1, max: 20, step: 0.1, unit: 'u/s²' },
-  { key: 'maxTilt', label: 'Max tilt', min: 10, max: 90, step: 1, unit: '°', scale: DEG },
+  { key: 'maxTilt', label: 'Max tilt', min: 10, max: 180, step: 1, unit: '°', scale: DEG },
   { key: 'attitudeRate', label: 'Attitude response', min: 1, max: 30, step: 0.5, unit: '/s' },
   { key: 'drag', label: 'Drag', min: 0, max: 1.5, step: 0.05 },
   { key: 'fuelBurn', label: 'Fuel burn', min: 0, max: 20, step: 0.5, unit: '/s' },
@@ -101,6 +103,10 @@ const CAMERA_SLIDERS: SliderSpec<Settings['camera']>[] = [
   { key: 'zoom', label: 'Zoom out with height', min: 0, max: 200, step: 10, unit: '%', scale: 100 },
 ];
 
+const POINTER_SLIDERS: SliderSpec<Settings['controls']>[] = [
+  { key: 'pointerSpeed', label: 'Pointer speed', min: 25, max: 400, step: 5, unit: '%', scale: 100 },
+];
+
 const CONTROL_SLIDERS: SliderSpec<Settings['controls']>[] = [
   { key: 'keyTilt', label: 'Forward lean', min: 20, max: 100, step: 5, unit: '%', scale: 100 },
   { key: 'keyResponse', label: 'Lean speed', min: 1, max: 10, step: 0.5, unit: '/s' },
@@ -161,6 +167,7 @@ export class SettingsPanel {
   private readonly mapCards = new Map<string, HTMLButtonElement>();
   private readonly refreshers: (() => void)[] = [];
   private readonly ratio = el('p', 'note');
+  private readonly help = el('p', 'help');
   private readonly thumbs: { canvas: HTMLCanvasElement; terrain: Terrain; palette: Palette }[] = [];
   private readonly presetButtons = new Map<keyof typeof COLOUR_PRESETS, HTMLButtonElement>();
   private readonly primary = el('button', 'fly');
@@ -219,7 +226,7 @@ export class SettingsPanel {
       handlers.onJumpToWave(wave);
     };
     jump.addEventListener('click', go);
-    // Typing a number mustn't fire the game's keys (E, R, Space); Esc still closes the panel.
+    // Typing a number mustn't fire the game's keys (E, R, Space, Q, F, C); Esc still closes the panel.
     this.waveInput.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') e.stopPropagation();
       if (e.key === 'Enter') go();
@@ -252,9 +259,15 @@ export class SettingsPanel {
     tuning.append(el('p', 'note', 'Smart bombs are handed out each wave and don\'t carry over; missiles build up (up to 9). New stock amounts apply from the next wave.'));
     tuning.append(el('h2', undefined, 'Assists'));
     tuning.append(this.toggle(settings.autopilot, 'enabled', 'Auto-refuel [R]', 'Once per wave, flies you back to the pad and lands.'));
+    tuning.append(el('h2', undefined, 'Controls'));
+    tuning.append(this.toggle(settings.controls, 'trackpad', 'Trackpad', 'Swipe to tilt; Space thrusts, F fires, C levels out, Q is the smart bomb.'));
+    for (const spec of POINTER_SLIDERS) tuning.append(this.slider(settings.controls, spec));
+    tuning.append(el('p', 'note', 'Made for a mouse, like the original. Pointer speed is how far a movement tilts the craft; a trackpad may want more.'));
     tuning.append(el('h2', undefined, 'Keyboard flying'));
     for (const spec of CONTROL_SLIDERS) tuning.append(this.slider(settings.controls, spec));
-    tuning.append(el('p', 'note', 'A/D or ←/→ turn the nose, W or ↑ leans along it, S or ↓ brakes; J or Shift thrusts, K fires. Forward lean is how far W tips the craft, as a share of full tilt; lean speed is how quickly it gets there and back to level.'));
+    tuning.append(el('p', 'note', 'Mouse scheme only. A/D or ←/→ turn the nose, W or ↑ leans along it, S or ↓ brakes; J or Shift thrusts, K fires. Forward lean is how far W tips the craft, as a share of full tilt; lean speed is how quickly it gets there and back to level.'));
+    tuning.append(el('h2', undefined, 'Craft'));
+    tuning.append(this.toggle(settings.ship, 'original', 'Original ship', "Lander's own green and teal paint, as Braben stored it in 1987. Off: the same hull in the game's colours."));
     tuning.append(el('h2', undefined, 'Thruster plume'));
     for (const spec of PLUME_SLIDERS) tuning.append(this.slider(settings.plume, spec));
     tuning.append(el('h2', undefined, 'Camera'));
@@ -287,6 +300,7 @@ export class SettingsPanel {
       Object.assign(settings.camera, DEFAULT_CAMERA);
       Object.assign(settings.sound, DEFAULT_SOUND);
       Object.assign(settings.controls, DEFAULT_CONTROLS);
+      Object.assign(settings.ship, DEFAULT_SHIP);
       this.refresh();
       handlers.onChange();
     });
@@ -297,7 +311,7 @@ export class SettingsPanel {
     panel.append(
       header,
       columns,
-      el('p', 'help', 'Move mouse: tilt craft (or A/D turn, W lean, S brake) · Left button, J or Shift: thrust · Right button or K: fire · Middle button / E: missile · Space: smart bomb · R: auto-refuel · Esc: pause / close'),
+      this.help,
     );
     root.append(panel);
     this.highlightMap();
@@ -370,6 +384,7 @@ export class SettingsPanel {
     const twr = this.settings.physics.thrust / this.settings.physics.gravity;
     this.ratio.textContent = `Thrust-to-weight ${twr.toFixed(2)}${twr <= 1 ? ' (cannot take off!)' : ''}`;
     this.ratio.classList.toggle('warn', twr <= 1);
+    this.help.textContent = controlsHelp(this.settings.controls);
   }
 
   /** A checkbox bound to a boolean setting, with a short explanation beside it. */

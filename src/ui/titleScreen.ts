@@ -1,19 +1,10 @@
+import type { ControlSettings } from '../input';
 import { findMap, MAPS } from '../sim/maps';
+import { controlLabels, MOUSE_NOTE, type ControlLabel } from './controls';
 import { loadBest } from './gameOver';
 import { githubLink } from './github';
 
-/** The controls the title screen names, in the order shown. */
-const CONTROLS = [
-  { id: 'tilt', key: 'MOUSE', label: 'tilt' },
-  { id: 'thrust', key: 'LEFT', label: 'thrust' },
-  { id: 'fire', key: 'RIGHT', label: 'cannon' },
-  { id: 'missile', key: 'E', label: 'missile' },
-  { id: 'bomb', key: 'SPACE', label: 'smart bomb' },
-  { id: 'refuel', key: 'R', label: 'auto-refuel' },
-  { id: 'pause', key: 'ESC', label: 'pause' },
-] as const;
-
-export type ControlId = (typeof CONTROLS)[number]['id'];
+export type ControlId = ControlLabel['id'];
 
 /** Which controls the demo pilot is using this frame. */
 export type ControlSignals = Partial<Record<ControlId, boolean>>;
@@ -36,21 +27,27 @@ export interface TitleHandlers {
   onGuide: () => void;
   onHowTo: () => void;
   onMapChange: (mapId: string) => void;
+  /** The player switched between the mouse and trackpad schemes (already set in the settings). */
+  onSchemeChange: () => void;
 }
 
 /**
- * The title screen's DOM, laid over the attract mode: the controls, lit as the demo pilot
- * uses them, the Fly, Settings and Enemies buttons, the best score and the map to play.
+ * The title screen's DOM, laid over the attract mode: the mouse or trackpad switch and that
+ * scheme's controls, lit as the demo pilot uses them, the Fly, How to play, Settings and Guide
+ * buttons, the best score and the map to play.
  */
 export class TitleScreen {
   private readonly chips = new Map<ControlId, { node: HTMLElement; glow: number }>();
   private readonly best = el('span', 'title-best');
   private readonly mapName = el('span', 'title-map-name');
   private readonly lost = el('p', 'title-lost', 'THE VIRUS HAS TAKEN THE LAND');
+  private readonly keys = el('div', 'title-keys');
+  private readonly schemeButtons: { button: HTMLButtonElement; trackpad: boolean }[] = [];
 
   constructor(
     private readonly root: HTMLElement,
     private readonly mapId: () => string,
+    private readonly controls: ControlSettings,
     handlers: TitleHandlers,
   ) {
     const tag = el('p', 'title-tag');
@@ -64,13 +61,22 @@ export class TitleScreen {
     const goal = el('p', 'title-goal');
     goal.append('Shoot the seeders before their ', el('span', 'title-virus', 'virus'), ' takes the land, and save the villages it reaches.');
 
-    const keys = el('div', 'title-keys');
-    for (const { id, key, label } of CONTROLS) {
-      const chip = el('span', 'title-key');
-      chip.append(el('kbd', undefined, key), el('span', undefined, label));
-      keys.append(chip);
-      this.chips.set(id, { node: chip, glow: 0 });
+    // The scheme switch: the game is made for a mouse, and says so; a trackpad is the fallback.
+    const scheme = el('div', 'title-scheme');
+    scheme.append(el('span', 'title-mouse-note', MOUSE_NOTE));
+    const choice = el('span', 'title-scheme-choice');
+    for (const [label, trackpad] of [['Mouse', false], ['Trackpad', true]] as const) {
+      const button = el('button', 'title-scheme-button', label);
+      button.addEventListener('click', () => {
+        if (this.controls.trackpad === trackpad) return;
+        this.controls.trackpad = trackpad;
+        handlers.onSchemeChange();
+        this.refresh();
+      });
+      this.schemeButtons.push({ button, trackpad });
+      choice.append(button);
     }
+    scheme.append(choice);
 
     const fly = el('button', 'fly', 'FLY ▸');
     fly.addEventListener('click', handlers.onFly);
@@ -100,7 +106,7 @@ export class TitleScreen {
     meta.append(this.best, map);
 
     const bottom = el('div', 'title-bottom');
-    bottom.append(goal, keys, buttons, meta);
+    bottom.append(goal, scheme, this.keys, buttons, meta);
     root.append(tag, this.lost, bottom, githubLink('title-github'));
     this.refresh();
   }
@@ -129,8 +135,18 @@ export class TitleScreen {
     this.lost.classList.toggle('visible', on);
   }
 
-  /** Updates the best score and map name, e.g. after a game or a change in the settings. */
+  /** Updates the controls, best score and map name, e.g. after a game or a change in the settings. */
   refresh(): void {
+    this.chips.clear();
+    this.keys.replaceChildren(
+      ...controlLabels(this.controls).map(({ id, key, label }) => {
+        const chip = el('span', 'title-key');
+        chip.append(el('kbd', undefined, key), el('span', undefined, label));
+        this.chips.set(id, { node: chip, glow: 0 });
+        return chip;
+      }),
+    );
+    for (const { button, trackpad } of this.schemeButtons) button.classList.toggle('selected', trackpad === this.controls.trackpad);
     const best = loadBest();
     this.best.textContent = best > 0 ? `BEST ${best}` : '';
     this.mapName.textContent = findMap(this.mapId()).name;

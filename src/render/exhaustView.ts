@@ -28,7 +28,8 @@ export const DEFAULT_PLUME: Readonly<PlumeSettings> = Object.freeze({
 /** Enough for the panel's highest rate at its longest lifetime. */
 const MAX_PARTICLES = 4500;
 /** Where particles leave the craft, in craft-local space (just under the belly). */
-const NOZZLE = new THREE.Vector3(0, -0.06, 0.05);
+/** The middle of the thruster plate, under the craft and a little forward of its centre. */
+const NOZZLE = new THREE.Vector3(0, 0, -0.04);
 
 /** Hot to cold. */
 const RAMP = ramp(0xffffc0, 0xffa020, 0xc02000, 0x200000);

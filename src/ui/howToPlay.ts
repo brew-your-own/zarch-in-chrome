@@ -1,5 +1,7 @@
+import type { ControlSettings } from '../input';
 import type { EnemySettings } from '../sim/enemies';
 import type { WeaponSettings } from '../sim/weapons';
+import { MOUSE_NOTE } from './controls';
 
 /** Set once the player has flown from the how-to-play screen, so it isn't shown before every game. */
 const SEEN_KEY = 'zarch.howto.v1';
@@ -23,9 +25,10 @@ function markSeen(): void {
 
 /** A card's text: plain strings and key chips, some read from the live settings. */
 type Part = string | { key: string };
+type Rules = { enemies: EnemySettings; weapons: WeaponSettings; controls: ControlSettings };
 interface Card {
   title: string;
-  lines: (rules: { enemies: EnemySettings; weapons: WeaponSettings }) => Part[][];
+  lines: (rules: Rules) => Part[][];
 }
 
 const pct = (share: number) => `${Math.round(share * 100)}%`;
@@ -33,12 +36,18 @@ const pct = (share: number) => `${Math.round(share * 100)}%`;
 const CARDS: Card[] = [
   {
     title: 'Fly',
-    lines: () => [
-      [{ key: 'MOUSE' }, ' tilts the craft: it leans the way you push, further the further you push.'],
-      [{ key: 'LEFT' }, ' fires the thruster. It pushes along the craft\'s lean, so lean a little to move and keep thrusting to stay up: gravity never lets go.'],
-      ['Or fly by keyboard: ', { key: 'A' }, { key: 'D' }, ' turn the nose, ', { key: 'W' }, ' leans along it, ', { key: 'S' }, ' brakes, ', { key: 'J' }, ' or ', { key: 'SHIFT' }, ' thrusts, ', { key: 'K' }, ' fires. The arrows work too.'],
-      ['The mouse is captured while you fly. ', { key: 'ESC' }, ' pauses and lets it go.'],
-    ],
+    lines: ({ controls }) =>
+      controls.trackpad
+        ? [
+            ['Swipe the trackpad to tilt the craft: it leans the way you swipe, further the further you go. The lean stays when you lift your finger. ', { key: 'C' }, ' levels it out.'],
+            [{ key: 'SPACE' }, ' fires the thruster. It pushes along the craft\'s lean, so lean a little to move and keep thrusting to stay up: gravity never lets go.'],
+            ['The pointer is captured while you fly. ', { key: 'ESC' }, ' pauses and lets it go.'],
+          ]
+        : [
+            [{ key: 'MOUSE' }, ' tilts the craft: it leans the way you push, further the further you push.'],
+            [{ key: 'LEFT' }, ' fires the thruster. It pushes along the craft\'s lean, so lean a little to move and keep thrusting to stay up: gravity never lets go.'],
+            ['The mouse is captured while you fly. ', { key: 'ESC' }, ' pauses and lets it go.'],
+          ],
   },
   {
     title: 'Land and refuel',
@@ -50,9 +59,9 @@ const CARDS: Card[] = [
   },
   {
     title: 'Stop the virus',
-    lines: ({ enemies }) => [
+    lines: ({ enemies, controls }) => [
       ['Seeders drop spores that turn the land crimson, and the virus spreads from there.'],
-      [{ key: 'RIGHT' }, ' fires the cannon where the nose points. The nose dips as you lean, so lean gently at a target.'],
+      [{ key: controls.trackpad ? 'F' : 'RIGHT' }, ' fires the cannon where the nose points. The nose dips as you lean, so lean gently at a target.'],
       [`If the virus covers ${pct(enemies.overrunAt)} of the land, the game is over.`],
     ],
   },
@@ -69,10 +78,10 @@ const CARDS: Card[] = [
   },
   {
     title: 'Special weapons',
-    lines: ({ weapons }) => [
-      [{ key: 'E' }, ' or the middle button fires a homing missile at the nearest enemy. You get more each wave.'],
+    lines: ({ weapons, controls }) => [
+      [{ key: 'E' }, controls.trackpad ? ' fires' : ' or the middle button fires', ' a homing missile at the nearest enemy. You get more each wave.'],
       [
-        { key: 'SPACE' },
+        { key: controls.trackpad ? 'Q' : 'SPACE' },
         weapons.bombsPerWave >= 1
           ? ` sets off a smart bomb, which destroys everything around you. From wave ${Math.round(weapons.bombsFromWave)} you get ${Math.round(weapons.bombsPerWave)} a wave, and they don't carry over.`
           : ' sets off a smart bomb, when you have one.',
@@ -102,10 +111,11 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
  */
 export class HowToPlay {
   private readonly cards = el('div', 'howto-cards');
+  private readonly note = el('p', 'howto-note');
 
   constructor(
     private readonly root: HTMLElement,
-    private readonly rules: { enemies: EnemySettings; weapons: WeaponSettings },
+    private readonly rules: Rules,
     handlers: { onBack: () => void; onFly: () => void },
   ) {
     const panel = el('div', 'panel howto');
@@ -118,7 +128,7 @@ export class HowToPlay {
       handlers.onFly();
     });
     header.append(el('h1', undefined, 'HOW TO PLAY'), el('p', 'status', 'Defend the land from the virus.'), back, fly);
-    panel.append(header, this.cards);
+    panel.append(header, this.cards, this.note);
     root.append(panel);
   }
 
@@ -139,6 +149,16 @@ export class HowToPlay {
         return node;
       }),
     );
+    // The other ways to fly stay in a footnote: the game is made for a mouse.
+    const parts: Part[] = this.rules.controls.trackpad
+      ? [MOUSE_NOTE, ' Switch to the mouse on the title screen.']
+      : [
+          MOUSE_NOTE,
+          ' No mouse? Pick Trackpad on the title screen. You can also fly by keyboard: ',
+          { key: 'A' }, { key: 'D' }, ' turn the nose, ', { key: 'W' }, ' leans along it, ', { key: 'S' }, ' brakes, ',
+          { key: 'J' }, ' or ', { key: 'SHIFT' }, ' thrusts, ', { key: 'K' }, ' fires. The arrows work too.',
+        ];
+    this.note.replaceChildren(...parts.map((part) => (typeof part === 'string' ? part : el('kbd', undefined, part.key))));
     this.root.classList.remove('hidden');
   }
 

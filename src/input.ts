@@ -1,6 +1,6 @@
 import type { CraftInput } from './sim/craft';
 
-/** Mouse travel (pixels) from the centre to full tilt. */
+/** Pointer travel (pixels) from the centre to full tilt, at a pointer speed of 1. */
 const FULL_TILT_PIXELS = 250;
 
 /** Key codes for keyboard flying. */
@@ -9,14 +9,54 @@ const BRAKE_KEYS = ['KeyS', 'ArrowDown'];
 const LEFT_KEYS = ['KeyA', 'ArrowLeft'];
 const RIGHT_KEYS = ['KeyD', 'ArrowRight'];
 const STEER_KEYS = [...FORWARD_KEYS, ...BRAKE_KEYS, ...LEFT_KEYS, ...RIGHT_KEYS];
-const THRUST_KEYS = ['KeyJ', 'ShiftLeft', 'ShiftRight'];
-const FIRE_KEYS = ['KeyK'];
+
+/**
+ * The keys of each control scheme. With a mouse, its buttons thrust and fire, and the keys
+ * are extras. With a trackpad, the right hand swipes the attitude and the left hand works
+ * the rest: Space thrusts (so the smart bomb moves to Q), F fires and C levels the craft.
+ */
+export interface KeyBindings {
+  thrust: string[];
+  fire: string[];
+  missile: string[];
+  bomb: string[];
+  /** Puts the aim back at the centre, so the craft levels out. */
+  level: string[];
+  /** Whether W/A/S/D and the arrows fly the craft (`steer`). */
+  steering: boolean;
+}
+
+const MOUSE_KEYS: KeyBindings = {
+  thrust: ['KeyJ', 'ShiftLeft', 'ShiftRight'],
+  fire: ['KeyK'],
+  missile: ['KeyE'],
+  bomb: ['Space'],
+  level: [],
+  steering: true,
+};
+
+const TRACKPAD_KEYS: KeyBindings = {
+  thrust: ['Space', 'ShiftLeft'],
+  fire: ['KeyF'],
+  missile: ['KeyE'],
+  bomb: ['KeyQ'],
+  level: ['KeyC'],
+  steering: false,
+};
+
+export function keyBindings(controls: ControlSettings): KeyBindings {
+  return controls.trackpad ? TRACKPAD_KEYS : MOUSE_KEYS;
+}
 
 /** How far the brake leans per unit of horizontal speed (u/s), up to the key tilt. */
 const BRAKE_LEAN = 0.25;
 
 /** How keyboard flying leans and turns the craft. */
 export interface ControlSettings {
+  /** Trackpad scheme: swipe to tilt, keys to thrust and fire (see `keyBindings`). */
+  trackpad: boolean;
+  /** Multiplies how far a pointer movement tilts the craft. */
+  pointerSpeed: number;
   /** How far the forward key tilts the craft, as a share of the mouse's full tilt. */
   keyTilt: number;
   /** How fast the aim moves under the keys, in aim-disk units per second. */
@@ -25,7 +65,7 @@ export interface ControlSettings {
   keyTurnRate: number;
 }
 
-export const DEFAULT_CONTROLS: ControlSettings = { keyTilt: 0.6, keyResponse: 3, keyTurnRate: 2 };
+export const DEFAULT_CONTROLS: ControlSettings = { trackpad: false, pointerSpeed: 1, keyTilt: 0.6, keyResponse: 3, keyTurnRate: 2 };
 
 /** The steering keys held this step: `turn` is -1 (left), 0 or 1 (right). */
 export interface SteerKeys {
@@ -62,13 +102,14 @@ export function easeAim(aim: { aimX: number; aimY: number }, target: { aimX: num
 }
 
 /**
- * Pointer-locked mouse, plus keyboard flying. The pointer is hidden and its movement drives a
+ * Pointer-locked mouse or trackpad, plus keys. The pointer is hidden and its movement drives a
  * virtual cursor inside the unit disk, standing in for the mouse position
  * relative to the screen centre in the original game.
  * Left button: thrust. Right button: fire. Middle button: homing missile.
- * Or by keyboard (see `steer`): A/D or left/right turn the nose, W or up leans along it and
+ * The keys depend on the scheme (`keyBindings`). In the mouse scheme the keys can also fly the
+ * craft (see `steer`): A/D or left/right turn the nose, W or up leans along it and
  * S or down brakes, all by easing the same cursor; J or Shift thrusts and K fires.
- * Moving the mouse takes the aim back from the keys.
+ * Moving the pointer takes the aim back from the keys.
  */
 export class PlayerInput {
   aimX = 0;
@@ -87,6 +128,7 @@ export class PlayerInput {
 
   constructor(
     private readonly target: HTMLElement,
+    private readonly controls: ControlSettings,
     private readonly onLockChange: (locked: boolean) => void,
   ) {
     document.addEventListener('pointerlockchange', () => {
@@ -100,8 +142,9 @@ export class PlayerInput {
     document.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
       if (e.movementX !== 0 || e.movementY !== 0) this.keyAim = false;
-      this.aimX += e.movementX / FULL_TILT_PIXELS;
-      this.aimY -= e.movementY / FULL_TILT_PIXELS;
+      const per = this.controls.pointerSpeed / FULL_TILT_PIXELS;
+      this.aimX += e.movementX * per;
+      this.aimY -= e.movementY * per;
       const mag = Math.hypot(this.aimX, this.aimY);
       if (mag > 1) {
         this.aimX /= mag;
@@ -124,8 +167,14 @@ export class PlayerInput {
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('keydown', (e) => {
       if (!this.locked) return;
-      const steering = STEER_KEYS.includes(e.code);
-      if (!steering && !THRUST_KEYS.includes(e.code) && !FIRE_KEYS.includes(e.code)) return;
+      const keys = this.bindings;
+      if (keys.level.includes(e.code)) {
+        this.keyAim = false;
+        this.centre();
+        return;
+      }
+      const steering = keys.steering && STEER_KEYS.includes(e.code);
+      if (!steering && !keys.thrust.includes(e.code) && !keys.fire.includes(e.code)) return;
       if (steering) this.keyAim = true;
       this.held.add(e.code);
       e.preventDefault();
@@ -134,12 +183,17 @@ export class PlayerInput {
     window.addEventListener('blur', () => this.held.clear());
   }
 
+  /** The keys of the scheme picked in the settings. */
+  get bindings(): KeyBindings {
+    return keyBindings(this.controls);
+  }
+
   thrusting(): boolean {
-    return this.thrust || this.anyHeld(THRUST_KEYS);
+    return this.thrust || this.anyHeld(this.bindings.thrust);
   }
 
   firing(): boolean {
-    return this.fire || this.anyHeld(FIRE_KEYS);
+    return this.fire || this.anyHeld(this.bindings.fire);
   }
 
   /**
@@ -147,7 +201,8 @@ export class PlayerInput {
    * While the mouse has the aim it only keeps the key heading on the craft's nose.
    */
   steer(dt: number, controls: ControlSettings, craft: { heading: number; vel: { x: number; z: number } }): void {
-    if (!this.keyAim) {
+    if (!this.keyAim || !this.bindings.steering) {
+      this.keyAim = false;
       this.keyHeading = craft.heading;
       return;
     }

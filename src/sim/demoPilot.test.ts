@@ -75,7 +75,8 @@ describe('demo pilot', () => {
 
   it('meets mutants, bombers and pests, and brings them down', () => {
     const totals = { mutations: 0, mutantKills: 0, bomberKills: 0, pestKills: 0, bites: 0 };
-    for (const seed of [1, 2, 3]) {
+    // A mutant kill is rare (about one run in two), so this needs a few more runs than the rest.
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
       const { tally } = attract(seed, 240);
       totals.mutations += tally.mutations;
       totals.mutantKills += tally.mutantKills;

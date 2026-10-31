@@ -44,6 +44,9 @@ const hud = new Hud(document.querySelector<HTMLDivElement>('#hud')!, document.bo
 const scanner = new Scanner(document.querySelector<HTMLCanvasElement>('#scanner')!);
 const overlay = document.querySelector<HTMLDivElement>('#overlay')!;
 const hudColumn = document.querySelector<HTMLDivElement>('#hud-column')!;
+/** The trackpad scheme's aim gauge: where the virtual cursor sits in the tilt disk. */
+const aimGauge = document.querySelector<HTMLDivElement>('#aim')!;
+const aimDot = aimGauge.querySelector<HTMLSpanElement>('.aim-dot')!;
 
 const settings = loadSettings();
 const { physics, plume, colours } = settings;
@@ -149,7 +152,7 @@ function buildViews() {
   terrainView = new TerrainView(terrain, palette);
   treeView = new TreeView(terrain, palette);
   buildingView = new BuildingView(terrain);
-  craftView = new CraftView(terrain, physics);
+  craftView = new CraftView(terrain, physics, settings.ship);
   exhaustView = new ExhaustView(terrain, physics, plume);
   bulletView = new BulletView();
   shotView = new BulletView(FIGHTER_TRACER);
@@ -214,7 +217,7 @@ function showTitleSettings() {
   panel.show('title', preview.terrain, preview.palette);
 }
 
-const input = new PlayerInput(canvas, (locked) => {
+const input = new PlayerInput(canvas, settings.controls, (locked) => {
   if (locked) {
     guide.hide();
     panel.hide();
@@ -375,7 +378,7 @@ const gameOverScreen = new GameOverScreen(document.querySelector<HTMLDivElement>
   onTitle: enterTitle,
 });
 
-const titleScreen = new TitleScreen(document.querySelector<HTMLDivElement>('#title')!, () => settings.mapId, {
+const titleScreen = new TitleScreen(document.querySelector<HTMLDivElement>('#title')!, () => settings.mapId, settings.controls, {
   onFly: fly,
   onSettings: showTitleSettings,
   onGuide: showGuide,
@@ -384,10 +387,12 @@ const titleScreen = new TitleScreen(document.querySelector<HTMLDivElement>('#tit
     settings.mapId = mapId;
     saveSettings(settings);
   },
+  onSchemeChange: () => saveSettings(settings),
 });
 
 // R engages auto-refuel (once per wave), or hands control back if it is flying.
-// Space sets off a smart bomb; E fires a homing missile (as does the middle button).
+// The bomb key (Space, or Q in the trackpad scheme) sets off a smart bomb; E fires a homing
+// missile (as does the middle button).
 document.addEventListener('keydown', (e) => {
   // Esc closes the field guide, how to play, or the settings opened from the title (in a game, Esc
   // releases the pointer, which pauses).
@@ -398,10 +403,10 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'KeyR') {
     const wasActive = autopilot.active;
     if (toggleAutopilot(autopilot, craft, terrain, enemies.wave, settings.autopilot) && !wasActive) sound.autopilot();
-  } else if (e.code === 'Space') {
+  } else if (input.bindings.bomb.includes(e.code)) {
     e.preventDefault();
     bombRequested = true;
-  } else if (e.code === 'KeyE') {
+  } else if (input.bindings.missile.includes(e.code)) {
     input.missile = true;
   }
 });
@@ -763,6 +768,9 @@ function frame(now: number) {
     hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, settings.autopilot, alert, lives, arsenal, effectsDt);
     scanner.update(terrain, palette, craft, enemies, settings.sound.alertDistance, alert, elapsed);
   }
+  const showAim = !title && settings.controls.trackpad && input.locked && !gameOver;
+  aimGauge.classList.toggle('hidden', !showAim);
+  if (showAim) aimDot.style.transform = `translate(${input.aimX * 28}px, ${-input.aimY * 28}px)`;
   playSounds(alert, elapsed);
 
   requestAnimationFrame(frame);
