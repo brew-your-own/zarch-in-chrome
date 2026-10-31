@@ -31,6 +31,8 @@ export interface TitleHandlers {
   onSchemeChange: () => void;
   /** Starts Demo mode: a real game on the chosen map, flown by the computer. */
   onDemo: () => void;
+  /** Starts a race round the chosen map's gates. */
+  onRace: () => void;
 }
 
 /**
@@ -91,8 +93,11 @@ export class TitleScreen {
     const demo = el('button', 'reset', 'Demo');
     demo.title = 'Watch the computer play a real game on this map';
     demo.addEventListener('click', handlers.onDemo);
+    const race = el('button', 'reset', 'Race');
+    race.title = 'Fly a loop of gates round this map against the clock and your ghost';
+    race.addEventListener('click', handlers.onRace);
     const buttons = el('div', 'title-buttons');
-    buttons.append(fly, demo, howTo, settings, guide);
+    buttons.append(fly, race, demo, howTo, settings, guide);
 
     const step = (by: number) => {
       const k = MAPS.findIndex((m) => m.id === this.mapId());

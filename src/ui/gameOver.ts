@@ -1,3 +1,4 @@
+import { MAX_MULTIPLIER } from '../sim/combo';
 const BEST_KEY = 'zarch.best.v1';
 
 /** Best score in this browser; 0 when storage is empty or unavailable. */
@@ -27,6 +28,8 @@ export interface GameOverStats {
   score: number;
   wave: number;
   infected: number;
+  /** The longest kill chain of the game. */
+  bestChain: number;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -58,7 +61,7 @@ export class GameOverScreen {
     this.hide();
   }
 
-  show({ reason, score, wave, infected }: GameOverStats, newBest: boolean): void {
+  show({ reason, score, wave, infected, bestChain }: GameOverStats, newBest: boolean): void {
     this.reason.textContent =
       reason === 'virus' ? 'The virus has taken over the land.'
       : reason === 'buildings' ? 'The virus has taken every village.'
@@ -68,6 +71,7 @@ export class GameOverScreen {
         ['SCORE', String(score)],
         ['WAVE', String(wave)],
         ['INFECTED', `${(infected * 100).toFixed(0)}%`],
+        ['BEST CHAIN', bestChain >= 2 ? `×${Math.min(bestChain, MAX_MULTIPLIER)} (${bestChain} kills)` : '—'],
       ].map(([label, value]) => {
         const row = el('div', 'gameover-row');
         row.append(el('span', 'hud-label', label), el('span', 'gameover-value', value));

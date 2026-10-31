@@ -12,6 +12,9 @@ export interface SoundSettings {
 
 export const DEFAULT_SOUND: Readonly<SoundSettings> = Object.freeze({ volume: 0.6, alertDistance: 10, music: 0.5 });
 
+/** The low-flying wind at full level. */
+const WIND_GAIN = 0.12;
+
 /** While paused or after game over, the music keeps playing at this share of its volume. */
 const MUSIC_QUIET = 0.4;
 
@@ -74,6 +77,9 @@ export class SoundEngine {
   private alertLevel = 0;
   private musicPlayer?: MusicPlayer;
   private musicGain?: GainNode;
+  private windGain?: GainNode;
+  private windFilter?: BiquadFilterNode;
+  private windLevel = 0;
 
   constructor(private readonly settings: SoundSettings) {}
 
@@ -186,6 +192,57 @@ export class SoundEngine {
       osc.start(t + delay);
       osc.stop(t + delay + 0.42);
     }
+  }
+
+  /**
+   * A kill that grows a chain to `multiplier` (2 and up): a bright two-note ping that climbs a
+   * pentatonic scale with each step of the chain.
+   */
+  chain(multiplier: number): void {
+    const { ctx, master } = this;
+    if (!ctx || !master) return;
+    const t = ctx.currentTime;
+    const scale = [0, 2, 4, 7, 9, 12, 14, 16, 19];
+    const root = 660 * 2 ** (scale[Math.min(scale.length - 1, multiplier - 2)]! / 12);
+    for (const [delay, freq] of [[0, root], [0.06, root * 1.5]] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, t + delay);
+      gain.gain.exponentialRampToValueAtTime(0.09, t + delay + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + delay + 0.22);
+      osc.connect(gain).connect(master);
+      osc.start(t + delay);
+      osc.stop(t + delay + 0.24);
+    }
+  }
+
+  /**
+   * The rush of air while flying low: band-passed noise whose volume and pitch follow `level`
+   * (0-1, from `lowFlying`). Call every frame; 0 silences it.
+   */
+  wind(level: number): void {
+    const { ctx, master, noise } = this;
+    if (!ctx || !master || !noise) return;
+    if (!this.windGain || !this.windFilter) {
+      const source = ctx.createBufferSource();
+      source.buffer = noise;
+      source.loop = true;
+      this.windFilter = ctx.createBiquadFilter();
+      this.windFilter.type = 'bandpass';
+      this.windFilter.Q.value = 1.2;
+      this.windFilter.frequency.value = 600;
+      this.windGain = ctx.createGain();
+      this.windGain.gain.value = 0;
+      source.connect(this.windFilter).connect(this.windGain).connect(master);
+      source.start();
+    }
+    if (Math.abs(level - this.windLevel) < 0.01) return;
+    this.windLevel = level;
+    const t = ctx.currentTime;
+    this.windGain.gain.setTargetAtTime(level * WIND_GAIN, t, 0.12);
+    this.windFilter.frequency.setTargetAtTime(500 + 1400 * level, t, 0.12);
   }
 
   /** A building catching the virus, `distance` tiles away: a low falling two-note warning. */

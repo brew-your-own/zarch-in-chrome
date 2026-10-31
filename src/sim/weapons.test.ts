@@ -87,7 +87,8 @@ describe('smart bombs', () => {
     expect(enemies.fighters).toHaveLength(1);
     expect(enemies.spores).toHaveLength(0);
     expect(enemies.shots).toHaveLength(0);
-    expect(enemies.score).toBe(SEEDER_POINTS + FIGHTER_POINTS);
+    // One blast is a chain: the second kill (fighters come first) scores double.
+    expect(enemies.score).toBe(FIGHTER_POINTS + 2 * SEEDER_POINTS);
     expect(a.bombs).toBe(0);
     expect(detonateBomb(a, craft, enemies, t, W)).toBeNull(); // none left
   });
@@ -102,7 +103,7 @@ describe('smart bombs', () => {
     a.bombs = 1;
     const events = detonateBomb(a, craft, enemies, t, W)!;
     expect(events.map((e) => e.type)).toEqual(['bombDetonated', 'mutantDestroyed', 'bomberDestroyed']);
-    expect(enemies.score).toBe(MUTANT_POINTS + BOMBER_POINTS);
+    expect(enemies.score).toBe(MUTANT_POINTS + 2 * BOMBER_POINTS);
   });
 });
 

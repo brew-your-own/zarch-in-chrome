@@ -296,3 +296,56 @@ html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
 .title-map-name { min-width: 12ch; text-align: center; color: var(--text); }
 .title-arrow { padding: 0 6px; color: var(--accent); background: transparent; border: 1px solid var(--line); }
 .title-arrow:hover { border-color: var(--accent); }
+
+/* Kill chains and low flying, at the top centre. */
+.combo {
+  position: fixed; top: 44px; left: 50%; transform: translateX(-50%); pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  font: bold 15px monospace; color: var(--accent); text-shadow: 2px 2px #000;
+}
+.combo.hidden, .combo .hidden { display: none; }
+.combo-chain {
+  --heat: 0;
+  display: grid; grid-template-columns: auto auto; align-items: baseline; gap: 0 8px;
+  color: color-mix(in srgb, var(--accent), #ff4020 calc(var(--heat) * 100%));
+}
+.combo-chain.bump { animation: combo-bump 0.25s ease-out; }
+@keyframes combo-bump { from { transform: scale(1.5); } }
+.combo-times { font-size: 40px; line-height: 1; }
+.combo-label { letter-spacing: 0.25em; }
+.combo-bar { grid-column: 1 / -1; height: 4px; background: rgba(0, 0, 0, 0.5); border: 1px solid currentColor; }
+.combo-clock { height: 100%; background: currentColor; }
+.combo-low { color: #6cf; letter-spacing: 0.15em; }
+.combo-low.fading { opacity: 0.5; }
+
+.score-popup {
+  --heat: 0;
+  position: fixed; left: 0; top: 0; pointer-events: none; white-space: nowrap;
+  font: bold 16px monospace; color: #fff; text-shadow: 2px 2px #000;
+}
+.score-popup.chained { font-size: 20px; color: color-mix(in srgb, var(--accent), #ff4020 calc(var(--heat) * 100%)); }
+.score-popup span { font-size: 0.8em; }
+
+/* The race: clock and gates at the top centre, the result screen like game over's. */
+.race-hud {
+  position: fixed; top: 40px; left: 50%; transform: translateX(-50%); pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  font: bold 15px monospace; color: var(--accent); text-shadow: 2px 2px #000;
+}
+.race-hud.hidden { display: none; }
+.race-clock { font-size: 44px; line-height: 1; letter-spacing: 0.05em; font-variant-numeric: tabular-nums; }
+.race-row { display: flex; align-items: center; gap: 10px; letter-spacing: 0.15em; }
+.race-distance { color: var(--text); min-width: 2em; }
+.race-split { font-size: 26px; color: #fff; }
+.race-split.ahead { color: #6f6; }
+.race-split.behind { color: var(--warn); }
+.race-hint { color: #fff; letter-spacing: 0.2em; animation: blink 0.8s steps(2, start) infinite; }
+.race-hint:empty { display: none; }
+.race-best { color: var(--muted); font-size: 12px; letter-spacing: 0.1em; }
+.race-result-time { margin: 8px 0; font: bold 56px monospace; color: var(--accent); }
+#race-result {
+  position: fixed; inset: 0; display: flex; padding: 24px 16px; box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.45); font: 13px/1.4 monospace; color: var(--text);
+}
+#race-result.hidden { display: none; }
+.race-result h1 { color: var(--accent); }

@@ -1,5 +1,6 @@
 import { crashCraft, CRAFT_RADIUS, type CraftState, type Physics, type Vec3 } from './craft';
 import { buildingsLostFraction, standingBuildings, stepBuildings, type BuildingEvent } from './buildings';
+import { chainKill, createCombo, multiplier, stepCombo, type Combo } from './combo';
 import { BOMBER_POINTS, BOMBER_RADIUS, flyBomber, spawnBomber, type Bomber } from './bombers';
 import type { Bullet } from './cannon';
 import { FIGHTER_POINTS, FIGHTER_RADIUS, flyFighter, moveShot, spawnFighter, type EnemyShot, type Fighter } from './fighters';
@@ -155,33 +156,37 @@ export function killEnemy(enemies: EnemyState, id: number, byBullet: boolean): E
     const k = list.findIndex((e) => e.id === id);
     return k < 0 ? undefined : list.splice(k, 1)[0];
   };
-  const score = (points: number) => {
-    if (byBullet) enemies.score += points;
+  // A scoring kill extends the chain, and is worth its points times the chain's multiplier.
+  let points = 0;
+  const score = (base: number) => {
+    if (!byBullet) return;
+    points = chainKill(enemies.combo, base);
+    enemies.score += points;
   };
   const seeder = take(enemies.seeders);
   if (seeder) {
     score(SEEDER_POINTS);
-    return { type: 'seederDestroyed', seeder, byBullet };
+    return { type: 'seederDestroyed', seeder, byBullet, points, multiplier: multiplier(enemies.combo) };
   }
   const fighter = take(enemies.fighters);
   if (fighter) {
     score(FIGHTER_POINTS);
-    return { type: 'fighterDestroyed', fighter, byBullet };
+    return { type: 'fighterDestroyed', fighter, byBullet, points, multiplier: multiplier(enemies.combo) };
   }
   const mutant = take(enemies.mutants);
   if (mutant) {
     score(MUTANT_POINTS);
-    return { type: 'mutantDestroyed', mutant, byBullet };
+    return { type: 'mutantDestroyed', mutant, byBullet, points, multiplier: multiplier(enemies.combo) };
   }
   const bomber = take(enemies.bombers);
   if (bomber) {
     score(BOMBER_POINTS);
-    return { type: 'bomberDestroyed', bomber, byBullet };
+    return { type: 'bomberDestroyed', bomber, byBullet, points, multiplier: multiplier(enemies.combo) };
   }
   const pest = take(enemies.pests);
   if (pest) {
     score(PEST_POINTS);
-    return { type: 'pestDestroyed', pest, byBullet };
+    return { type: 'pestDestroyed', pest, byBullet, points, multiplier: multiplier(enemies.combo) };
   }
   return null;
 }
@@ -254,6 +259,8 @@ export interface EnemyState {
   shots: EnemyShot[];
   wave: number;
   score: number;
+  /** The kill chain and low-flying bonus (see `combo.ts`). */
+  combo: Combo;
   /** Points the current wave's start paid for standing buildings. */
   waveBonus: number;
   /** Seconds until the next wave, once the current one is cleared. */
@@ -266,13 +273,17 @@ export interface EnemyState {
   pestRng: () => number;
 }
 
+/**
+ * `points` on a `…Destroyed` event: what the kill scored, multiplier included (0 when rammed);
+ * `multiplier` is the chain's multiplier just after it.
+ */
 export type EnemyEvent =
-  | { type: 'seederDestroyed'; seeder: Seeder; byBullet: boolean }
-  | { type: 'fighterDestroyed'; fighter: Fighter; byBullet: boolean }
-  | { type: 'mutantDestroyed'; mutant: Mutant; byBullet: boolean }
-  | { type: 'bomberDestroyed'; bomber: Bomber; byBullet: boolean }
+  | { type: 'seederDestroyed'; seeder: Seeder; byBullet: boolean; points: number; multiplier: number }
+  | { type: 'fighterDestroyed'; fighter: Fighter; byBullet: boolean; points: number; multiplier: number }
+  | { type: 'mutantDestroyed'; mutant: Mutant; byBullet: boolean; points: number; multiplier: number }
+  | { type: 'bomberDestroyed'; bomber: Bomber; byBullet: boolean; points: number; multiplier: number }
   /** `byBullet` false: it bit the craft (see `craftBitten`). */
-  | { type: 'pestDestroyed'; pest: Pest; byBullet: boolean }
+  | { type: 'pestDestroyed'; pest: Pest; byBullet: boolean; points: number; multiplier: number }
   /** A pest reached the craft and drained `fuel`. */
   | { type: 'craftBitten'; pos: Vec3; fuel: number }
   /** A bullet hit a bomber that still has hits left. */
@@ -288,7 +299,7 @@ export type EnemyEvent =
   | BuildingEvent;
 
 export function createEnemies(seed: number): EnemyState {
-  return { seeders: [], spores: [], fighters: [], mutants: [], bombers: [], pests: [], shots: [], wave: 0, score: 0, waveBonus: 0, nextWaveIn: 0, skipBonus: false, nextId: 1, rng: createRng(seed), pestRng: createRng(seed ^ 0x9e57) };
+  return { seeders: [], spores: [], fighters: [], mutants: [], bombers: [], pests: [], shots: [], wave: 0, score: 0, combo: createCombo(), waveBonus: 0, nextWaveIn: 0, skipBonus: false, nextId: 1, rng: createRng(seed), pestRng: createRng(seed ^ 0x9e57) };
 }
 
 /**
@@ -309,6 +320,7 @@ export function stepEnemies(
 ): EnemyEvent[] {
   const events: EnemyEvent[] = [];
   let settings = waveSettings(base, enemies.wave);
+  enemies.score += stepCombo(enemies.combo, craft, terrain, dt);
 
   if (enemyCount(enemies) === 0 && settings.firstWave >= 1) {
     enemies.nextWaveIn -= dt;

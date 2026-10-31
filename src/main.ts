@@ -31,6 +31,15 @@ import { buildTitleMap, lettersInfected, type TitleMap } from './sim/titleMap';
 import { FieldGuide } from './ui/fieldGuide';
 import { HowToPlay, howToPlaySeen } from './ui/howToPlay';
 import { GameOverScreen, recordScore, type GameOverStats } from './ui/gameOver';
+import { ComboMeter } from './ui/comboMeter';
+import { GateView } from './render/gateView';
+import { GhostView } from './render/ghostView';
+import { buildCourse, createRace, ghostPose, stepRace, type RaceEvent, type RaceState } from './sim/race';
+import { flyCourse } from './sim/racePilot';
+import { RaceHud } from './ui/raceHud';
+import { loadRecord, saveRecord } from './ui/raceRecords';
+import { RaceResultScreen } from './ui/raceResult';
+import { ScorePopups } from './ui/scorePopups';
 import { Hud } from './ui/hud';
 import { Scanner } from './ui/scanner';
 import { SettingsPanel, type DebugAids } from './ui/settingsPanel';
@@ -41,6 +50,10 @@ const MAX_FRAME = 0.25;
 
 const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
 const hud = new Hud(document.querySelector<HTMLDivElement>('#hud')!, document.body);
+const comboMeter = new ComboMeter(document.body);
+const hudEl = document.querySelector<HTMLDivElement>('#hud')!;
+const raceHud = new RaceHud(document.body);
+const scorePopups = new ScorePopups(document.body);
 const scanner = new Scanner(document.querySelector<HTMLCanvasElement>('#scanner')!);
 const overlay = document.querySelector<HTMLDivElement>('#overlay')!;
 const hudColumn = document.querySelector<HTMLDivElement>('#hud-column')!;
@@ -116,8 +129,19 @@ let debugUsed = false;
 let autoplay = false;
 let autoPaused = false;
 const demoBadge = document.querySelector<HTMLDivElement>('#demo-badge')!;
+/**
+ * Race mode: a game with no enemies where the player flies `race`'s gates round the map against
+ * the clock, then lands on the pad. `raceBest` is the run to beat, with its ghost: the player's
+ * best on this map, or the computer's (`PAR`) until there is one. `raceDone` freezes the sim
+ * once the craft is down, under the result screen.
+ */
+let race: RaceState | null = null;
+let raceBest: { time: number; splits: number[]; ghost: number[]; who: 'YOU' | 'PAR' } | null = null;
+let raceDone = false;
+/** The computer's run on each map (and physics), worked out the first time it is raced. */
+const parRuns = new Map<string, RaceState>();
 /** Whether a game is running now: the player's with the pointer locked, or the demo unpaused. */
-const live = () => mode === 'game' && !gameOver && (input.locked || (autoplay && !autoPaused));
+const live = () => mode === 'game' && !gameOver && !raceDone && (input.locked || (autoplay && !autoPaused));
 /** Seconds of unpaused play, for cosmetic motion such as the waves. */
 let waveTime = 0;
 /** Seconds until another small splash may sound, so a shower of shards doesn't stack up. */
@@ -151,6 +175,8 @@ let missileView: MissileView;
 let effectsView: EffectsView;
 let seederView: SeederView;
 let skyView: SkyView;
+let gateView: GateView | null = null;
+let ghostView: GhostView | null = null;
 let palette!: Palette; // assigned by buildViews()
 let sceneObjects: (THREE.Mesh | THREE.Points | THREE.LineSegments)[] = [];
 
@@ -161,6 +187,17 @@ function buildViews() {
     (old.material as THREE.Material).dispose();
     if (old instanceof THREE.InstancedMesh) old.dispose();
   }
+  if (gateView) {
+    scene.remove(gateView.group);
+    gateView.dispose();
+  }
+  if (ghostView) {
+    scene.remove(ghostView.mesh);
+    ghostView.dispose();
+  }
+  gateView = new GateView(terrain);
+  ghostView = new GhostView(terrain);
+  scene.add(gateView.group, ghostView.mesh);
   palette = new Palette(terrain, colours, title?.letters ?? null);
   terrainView = new TerrainView(terrain, palette);
   treeView = new TreeView(terrain, palette);
@@ -235,10 +272,13 @@ const input = new PlayerInput(canvas, settings.controls, (locked) => {
     guide.hide();
     panel.hide();
     gameOverScreen.hide();
+    raceResult.hide();
   } else if (mode === 'title') {
     // The title screen stays up; nothing to pause.
   } else if (gameOver) {
     gameOverScreen.show(gameOver.stats, gameOver.newBest);
+  } else if (raceDone) {
+    // The result screen is already up.
   } else {
     showPanel();
   }
@@ -286,6 +326,7 @@ function enterTitle() {
   guide.hide();
   howTo.hide();
   gameOverScreen.hide();
+  raceResult.hide();
   titleScreen.show();
 }
 
@@ -312,6 +353,82 @@ function startDemo() {
   sound.resume(); // a click: browsers only allow audio to start from a user gesture
 }
 
+/** A fresh race on `mapId`: a new game with no enemies, the map's gates, and the run to beat. */
+function beginRace(mapId: string) {
+  autoplay = false;
+  newGame(mapId);
+  const preset = findMap(mapId);
+  const course = buildCourse(terrain, preset.seed);
+  race = createRace(course);
+  // The run to beat is the faster of the player's best and the computer's.
+  // Par depends on the physics too, so a retuned craft gets a fresh one.
+  const parKey = `${preset.id} ${JSON.stringify(physics)}`;
+  let par = parRuns.get(parKey);
+  if (!par) {
+    par = flyCourse(course, terrain, physics);
+    parRuns.set(parKey, par);
+  }
+  const mine = loadRecord(preset.id);
+  const computer = par.finished ? { time: par.time, splits: par.splits, ghost: par.ghost, who: 'PAR' as const } : null;
+  raceBest = mine && (!computer || mine.time <= computer.time) ? { ...mine, who: 'YOU' } : computer;
+}
+
+/** Starts a race on the chosen map from the title or the result screen. */
+function startRace() {
+  beginRace(settings.mapId);
+  rig.frame(1);
+  titleScreen.hide();
+  howTo.hide();
+  guide.hide();
+  raceResult.hide();
+  hudColumn.classList.remove('hidden');
+  sound.resume(); // a click: browsers only allow audio to start from a user gesture
+  input.requestLock();
+}
+
+/** The craft is down on the pad after the last gate: keep the record, show the result. */
+function finishRace(time: number) {
+  if (!race) return;
+  raceDone = true;
+  const previous = raceBest;
+  const record = !previous || time < previous.time;
+  // A run with a debug aid is shown but never kept.
+  if (!debugUsed) saveRecord(settings.mapId, { time, splits: race.splits, ghost: race.ghost });
+  if (record && !debugUsed) raceBest = { time, splits: [...race.splits], ghost: race.ghost, who: 'YOU' };
+  raceResult.show({
+    time,
+    previous: previous && { time: previous.time, who: previous.who },
+    record,
+    crashes: race.crashes,
+    mapName: findMap(settings.mapId).name,
+  });
+  document.exitPointerLock();
+}
+
+function showRaceEvent(event: RaceEvent) {
+  if (!race) return;
+  switch (event.type) {
+    case 'gatePassed': {
+      const gate = race.course.gates[event.index]!;
+      effectsView.cleanse(nearCraft(gate.pos));
+      sound.chain(Math.min(10, event.index + 2));
+      raceHud.gate(event.time, raceBest?.splits[event.index] ?? null);
+      break;
+    }
+    case 'raceFinished':
+      sound.saved();
+      finishRace(event.time);
+      break;
+    case 'raceRespawned':
+      // It jumped to the gate: no smear from the pad, and the camera cuts to it.
+      Object.assign(prevPos, craft.pos);
+      rig.snap(craft.pos.y);
+      break;
+    case 'raceStarted':
+      break;
+  }
+}
+
 /** Fresh world on `mapId`: terrain (trees regrown, no infection), craft, cannon and enemies. */
 function newGame(mapId: string) {
   mode = 'game';
@@ -325,9 +442,13 @@ function newGame(mapId: string) {
   Object.assign(enemies, newEnemies());
   buildViews();
   resetMotion();
+  scorePopups.clear();
   gameOver = null;
   debugUsed = false;
   autoPaused = false;
+  race = null;
+  raceBest = null;
+  raceDone = false;
   if (autoplay) {
     Object.assign(demo, newDemo());
     debugUsed = true; // the pilot's score isn't the player's
@@ -336,7 +457,7 @@ function newGame(mapId: string) {
 }
 
 function endGame(reason: GameOverStats['reason']) {
-  const stats = { reason, score: enemies.score, wave: enemies.wave, infected: terrain.infectedFraction() };
+  const stats = { reason, score: enemies.score, wave: enemies.wave, infected: terrain.infectedFraction(), bestChain: enemies.combo.best };
   // A game helped along by the debug aids doesn't count for the best score.
   gameOver = { stats, newBest: !debugUsed && recordScore(stats.score) };
   gameOverScreen.show(gameOver.stats, gameOver.newBest);
@@ -408,7 +529,8 @@ const panel = new SettingsPanel(overlay, settings, debug, {
     if (panel.openedFrom === 'title') {
       showTitleSettings();
     } else {
-      newGame(mapId);
+      if (race) beginRace(mapId);
+      else newGame(mapId);
       showPanel();
     }
   },
@@ -424,6 +546,11 @@ const gameOverScreen = new GameOverScreen(document.querySelector<HTMLDivElement>
   onTitle: enterTitle,
 });
 
+const raceResult = new RaceResultScreen(document.querySelector<HTMLDivElement>('#race-result')!, {
+  onAgain: startRace,
+  onTitle: enterTitle,
+});
+
 const titleScreen = new TitleScreen(document.querySelector<HTMLDivElement>('#title')!, () => settings.mapId, settings.controls, {
   onFly: fly,
   onSettings: showTitleSettings,
@@ -435,6 +562,7 @@ const titleScreen = new TitleScreen(document.querySelector<HTMLDivElement>('#tit
   },
   onSchemeChange: () => saveSettings(settings),
   onDemo: startDemo,
+  onRace: startRace,
 });
 
 // R engages auto-refuel (once per wave), or hands control back if it is flying.
@@ -451,7 +579,7 @@ document.addEventListener('keydown', (e) => {
     if (panel.visible) resumeDemo();
     else pauseDemo();
   }
-  if (e.repeat || !input.locked || gameOver || mode !== 'game') return;
+  if (e.repeat || !input.locked || gameOver || mode !== 'game' || race) return;
   if (e.code === 'KeyR') {
     const wasActive = autopilot.active;
     if (toggleAutopilot(autopilot, craft, terrain, enemies.wave, settings.autopilot) && !wasActive) sound.autopilot();
@@ -469,7 +597,7 @@ if (import.meta.env.DEV) {
   Object.assign(window, {
     zarch: {
       craft, cannon, autopilot, arsenal, enemies, input, settings, sound, demo,
-      get mode() { return mode; }, get lives() { return lives; }, get terrain() { return terrain; }, get gameOver() { return gameOver; },
+      get mode() { return mode; }, get lives() { return lives; }, get terrain() { return terrain; }, get gameOver() { return gameOver; }, get race() { return race; },
     },
   });
 }
@@ -526,8 +654,26 @@ function recentreDemo(map: TitleMap) {
 /** The sound engine during a game; null on the title screen, which runs silent. */
 const sfx = () => (mode === 'game' ? sound : null);
 
+/** Where a kill happened, for its score popup. */
+function killedAt(event: EnemyEvent | WeaponEvent): { x: number; y: number; z: number } | null {
+  switch (event.type) {
+    case 'seederDestroyed': return event.seeder.pos;
+    case 'fighterDestroyed': return event.fighter.pos;
+    case 'mutantDestroyed': return event.mutant.pos;
+    case 'bomberDestroyed': return event.bomber.pos;
+    case 'pestDestroyed': return event.pest.pos;
+    default: return null;
+  }
+}
+
 /** Explosions, effects and sounds for what the enemies and special weapons did this step. */
 function showEvent(event: EnemyEvent | WeaponEvent) {
+  // A scoring kill floats its points up from where it died, and a growing chain pings.
+  const at = killedAt(event);
+  if (at && 'points' in event && event.points > 0 && mode === 'game') {
+    scorePopups.add(nearCraft(at), event.points, event.multiplier);
+    if (event.multiplier >= 2) sound.chain(event.multiplier);
+  }
   switch (event.type) {
     case 'seederDestroyed': {
       const { geometry, matrix } = seederView.shape(event.seeder, craft.pos, simTime);
@@ -649,6 +795,7 @@ function proximityAlert(): number {
  */
 function musicIntensity(alert: number): number {
   if (!live()) return 0;
+  if (race) return 0.45 + 0.35 * (race.next / race.course.gates.length);
   const virus = Math.min(1, terrain.infectedFraction() / Math.max(0.01, settings.enemies.overrunAt));
   const enemiesAbout = enemyCount(enemies) > 0 ? 0.15 : 0;
   return 0.2 + enemiesAbout + 0.35 * virus + 0.4 * alert + (lives === 1 ? 0.1 : 0);
@@ -661,6 +808,7 @@ function playSounds(alert: number, dt: number) {
   sound.music(musicIntensity(alert), !playing, dt);
   sound.thruster(playing && craft.thrusting);
   sound.proximity(alert);
+  sound.wind(playing ? enemies.combo.low : 0);
   if (cannon.shots < shotsHeard) shotsHeard = 0; // a new game reset the cannon
   // At most two blips per frame, so a long frame doesn't stack a burst of shots.
   if (mode === 'game') for (let k = 0; k < Math.min(2, cannon.shots - shotsHeard); k++) sound.cannon();
@@ -676,7 +824,7 @@ function frame(now: number) {
   demoSignals = {};
   if (running) {
     accumulator += elapsed;
-    while (accumulator >= STEP && !gameOver) {
+    while (accumulator >= STEP && !gameOver && !raceDone) {
       Object.assign(prevPos, craft.pos);
       const wasCrashed = craft.status === 'crashed';
       simTime += STEP;
@@ -703,7 +851,7 @@ function frame(now: number) {
         // Mouse movement is ignored while landed, so every liftoff starts from a centred aim.
         if (craft.status === 'landed') input.centre();
         const wasAuto = autopilot.active;
-        const auto = stepAutopilot(autopilot, craft, terrain, physics, settings.autopilot);
+        const auto = race ? null : stepAutopilot(autopilot, craft, terrain, physics, settings.autopilot);
         if (auto) {
           input.releaseKeyAim();
           // Keep the mouse aim with the autopilot's, so taking back control doesn't jolt the craft.
@@ -730,6 +878,18 @@ function frame(now: number) {
           rig.shake(0.2, distanceFromCraft(impact.pos));
           geometry.dispose();
         }
+      }
+      if (race) {
+        // A race has no enemies: just the gates, the clock and the wrecks.
+        const wrecked = !wasCrashed && craft.status === 'crashed';
+        for (const event of stepRace(race, craft, prevPos, terrain, STEP, physics)) showRaceEvent(event);
+        if (wrecked) {
+          effectsView.explode(craftView.craft.geometry, craftView.craft.matrixWorld, craft.vel);
+          sfx()?.explosion('craft');
+          rig.shake(0.9);
+        }
+        accumulator -= STEP;
+        continue;
       }
       const rules = title ? demoEnemies : settings.enemies;
       for (const event of stepEnemies(enemies, craft, cannon.bullets, terrain, STEP, rules, physics)) showEvent(event);
@@ -819,11 +979,18 @@ function frame(now: number) {
   renderer.render(scene, camera);
 
   const alert = proximityAlert();
+  comboMeter.update(mode === 'game' && !gameOver && !race ? enemies.combo : null);
+  gateView?.update(race, renderPos, waveTime);
+  ghostView?.update(race?.started && raceBest ? ghostPose(raceBest.ghost, race.time) : null, renderPos);
+  raceHud.update(race, terrain, craft.pos, raceBest && { time: raceBest.time, who: raceBest.who }, effectsDt);
+  hudEl.hidden = race !== null;
+  scorePopups.update(camera, window.innerWidth, window.innerHeight, effectsDt);
   if (title) {
     titleScreen.update(demoSignals, elapsed);
   } else {
-    hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, settings.autopilot, alert, lives, arsenal, effectsDt);
-    scanner.update(terrain, palette, craft, enemies, settings.sound.alertDistance, alert, elapsed);
+    if (!race) hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, settings.autopilot, alert, lives, arsenal, effectsDt);
+    const gateMarks = race ? race.course.gates.slice(race.next).map((g, k) => ({ x: g.pos.x, z: g.pos.z, next: k === 0 })) : [];
+    scanner.update(terrain, palette, craft, enemies, race ? 0 : settings.sound.alertDistance, alert, elapsed, gateMarks);
     if (elapsed > 0) fps += (1 / elapsed - fps) * Math.min(1, elapsed * FPS_SMOOTHING);
     hud.fps(settings.display.fps ? fps : null);
   }

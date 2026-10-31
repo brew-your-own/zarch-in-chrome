@@ -32,6 +32,8 @@ export class Scanner {
     alertDistance: number,
     alert: number,
     dt: number,
+    /** Race gates still to pass: the next one bright, the rest faint. */
+    gates: readonly { x: number; z: number; next: boolean }[] = [],
   ): void {
     this.imageAge += dt;
     const stale = this.imageFor?.terrain !== terrain || this.imageFor.palette !== palette;
@@ -64,6 +66,15 @@ export class Scanner {
     ctx.strokeRect(px - 1, py - 1, pad.w * scale + 2, pad.h * scale + 2);
     ctx.strokeStyle = '#fff';
     ctx.strokeRect(px, py, pad.w * scale, pad.h * scale);
+
+    for (const g of gates) {
+      const [x, y] = toScreen(g.x, g.z);
+      ctx.beginPath();
+      ctx.arc(x, y, g.next ? 5 : 3, 0, Math.PI * 2);
+      ctx.lineWidth = g.next ? 2.5 : 1.5;
+      ctx.strokeStyle = g.next ? '#ff0' : 'rgba(255, 255, 255, 0.6)';
+      ctx.stroke();
+    }
 
     // Proximity alarm ring: faint while quiet, red and thicker the louder the alarm.
     if (alertDistance > 0) {
