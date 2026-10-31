@@ -1,4 +1,4 @@
-import { autopilotInput, CLEARANCE, highestObstacle, steer } from './autopilot';
+import { autopilotInput, CLEARANCE, CRUISE_SPEED, highestObstacle, steer } from './autopilot';
 import { buildingBase, buildingHeight, RESCUE_HEIGHT, RESCUE_TIME, type Building } from './buildings';
 import { noseDirection, type CraftInput, type CraftState, type Physics } from './craft';
 import { DEFAULT_ENEMIES, enemyCount, targets, type EnemySettings, type EnemyState, type Target } from './enemies';
@@ -25,6 +25,8 @@ export interface DemoPilot {
   missileIn: number;
   /** While evading a mutant, the direction it is running in. */
   run: { x: number; z: number } | null;
+  /** Committed to landing on the pad in a gap between a mutant's dives (`carefulLanding`). */
+  landing: boolean;
   rng: () => number;
 }
 
@@ -76,6 +78,22 @@ const APPROACH_LEAN = (25 * Math.PI) / 180;
 const HIT_MARGIN = 0.9;
 /** Heads for the pad below this share of a full tank, and takes off again once refilled. */
 const LOW_FUEL = 0.35;
+/** Below this share of a tank it stops evading and goes home regardless. */
+const DRY = 0.12;
+/**
+ * Landing carefully: it runs about within `LAND_LEASH` of the pad, and starts down from within
+ * `LAND_NEAR` of it once the mutant is climbing away from a dive or has `SAFE_STALK` seconds of
+ * stalking left.
+ */
+const LAND_LEASH = 3;
+const LAND_NEAR = 3;
+const SAFE_STALK = 1;
+const LANDING_LEAN = (12 * Math.PI) / 180;
+/** A gun run at a mutant needs this many seconds of its stalking left, and it within this height. */
+const COUNTER_STALK = 1.2;
+const COUNTER_HEIGHT = 1.5;
+/** Seconds between missiles fired at a mutant it is running from. */
+const MUTANT_MISSILE_GAP = 4;
 const FULL = 0.98;
 /** A bomb goes off when this many enemies are within this share of the bomb's radius. */
 const BOMB_CROWD = 2;
@@ -99,8 +117,49 @@ const RESCUE_SPEED = 4;
 const ROOF_CLEARANCE = 0.7;
 const OVER_BUILDING = 0.8;
 
+/**
+ * How far from home the pilot ranges: it hunts enemies within `leash`, saves buildings within
+ * `rescueLeash`, and turns back from a run past `runLeash`. The title screen keeps it close to
+ * the lettering; Demo mode plays a whole map, so it goes wherever the enemies are.
+ */
+export interface DemoReach {
+  leash: number;
+  rescueLeash: number;
+  runLeash: number;
+  /** Heads home once fuel only covers the trip back with a margin (`fuelForTrip`), not just below `LOW_FUEL`. */
+  tripFuel: boolean;
+  /**
+   * Picks older seeders first, before they mutate, by counting each second of a seeder's age
+   * as this many tiles nearer (0: the nearest enemy first).
+   */
+  agePull: number;
+  /**
+   * With a mutant about, goes home at speed and circles near the pad, landing only in the gap
+   * after one of its dives; it keeps evading while low on fuel instead of going straight home.
+   */
+  carefulLanding: boolean;
+  /** Turns on a mutant for a gun run in the gap between its dives, instead of only running. */
+  counter: boolean;
+}
+
+export const TITLE_REACH: Readonly<DemoReach> = Object.freeze({ leash: LEASH, rescueLeash: RESCUE_LEASH, runLeash: RUN_LEASH, tripFuel: false, agePull: 0, carefulLanding: false, counter: false });
+export const GAME_REACH: Readonly<DemoReach> = Object.freeze({ leash: Infinity, rescueLeash: Infinity, runLeash: Infinity, tripFuel: true, agePull: 1, carefulLanding: true, counter: true });
+
+/** Seconds the climb out and the landing add to a trip home. */
+const TRIP_OVERHEAD = 10;
+/** Share of the time the thruster fires on a trip home, and the margin kept on top. */
+const TRIP_DUTY = 0.55;
+const TRIP_MARGIN = 1.5;
+
+/** Fuel to fly home to the pad from here and land, with a margin. */
+export function fuelForTrip(craft: CraftState, terrain: Terrain, physics: Physics): number {
+  const pad = terrain.padCentre();
+  const distance = Math.hypot(terrain.delta(craft.pos.x, pad.x), terrain.delta(craft.pos.z, pad.z));
+  return (distance / CRUISE_SPEED + TRIP_OVERHEAD) * physics.fuelBurn * TRIP_DUTY * TRIP_MARGIN;
+}
+
 export function createDemoPilot(seed: number): DemoPilot {
-  return { mode: 'refuel', targetId: null, patrol: { x: 0, z: 0 }, patrolIn: 0, missileIn: 6, run: null, rng: createRng(seed) };
+  return { mode: 'refuel', targetId: null, patrol: { x: 0, z: 0 }, patrolIn: 0, missileIn: 6, run: null, landing: false, rng: createRng(seed) };
 }
 
 const IDLE: CraftInput = { aimX: 0, aimY: 0, thrust: false };
@@ -115,6 +174,7 @@ export function stepDemoPilot(
   weapons: WeaponSettings,
   home: { x: number; z: number },
   dt: number,
+  reach: Readonly<DemoReach> = TITLE_REACH,
 ): DemoCommand {
   const command = (input: CraftInput, fire = false, bomb = false, missile = false): DemoCommand => ({ input, fire, bomb, missile, mode: pilot.mode });
   if (craft.status === 'crashed') {
@@ -126,22 +186,53 @@ export function stepDemoPilot(
   // A building to save comes before waiting on the pad, but not before refuelling when low.
   const onPad = craft.status === 'landed' && terrain.tileTypeAt(craft.pos.x, craft.pos.z) === 'pad';
   const none = enemyCount(enemies) === 0;
-  const low = craft.fuel < LOW_FUEL * physics.maxFuel;
-  const saving = low ? null : buildingToSave(craft, terrain, home);
+  const low = craft.fuel < Math.max(LOW_FUEL * physics.maxFuel, reach.tripFuel ? fuelForTrip(craft, terrain, physics) : 0);
+  const saving = low ? null : buildingToSave(craft, terrain, home, reach.rescueLeash);
   if (low || (none && !saving)) pilot.mode = 'refuel';
   else if (saving) pilot.mode = 'rescue';
+
+  // A mutant close by comes first, even on the way to the pad: a craft slowing down to land
+  // is what a diving mutant hits. Keep moving round it, shooting when it lines up. On the
+  // pad itself the craft is safe, since mutants don't dive at it there.
+  // With the tank nearly dry it heads home whatever is about: running out is a sure crash.
+  const dry = craft.fuel < Math.max(DRY * physics.maxFuel, reach.tripFuel ? fuelForTrip(craft, terrain, physics) / TRIP_MARGIN : 0);
+  // Going home carefully, it runs about near the pad rather than wherever it was.
+  const careful = reach.carefulLanding && pilot.mode === 'refuel';
+  const pad = terrain.padCentre();
+  if (!careful || onPad) pilot.landing = false;
+  const evading =
+    onPad || (dry && !careful)
+      ? null
+      : careful
+        ? evade(pilot, craft, enemies, terrain, physics, pad, LAND_LEASH, reach.counter)
+        : evade(pilot, craft, enemies, terrain, physics, home, reach.runLeash, reach.counter);
+  pilot.run = evading ? pilot.run : null;
+  pilot.missileIn -= dt;
+  if (evading) {
+    // Running only buys time, and burns fuel: a missile finishes the mutant, and when fuel
+    // is getting low a smart bomb does, if it is close enough.
+    const missile = arsenal.missiles > 0 && pilot.missileIn <= 0;
+    if (missile) pilot.missileIn = MUTANT_MISSILE_GAP;
+    const bomb = low && arsenal.bombs > 0 && evading.distance < weapons.bombRadius * BOMB_REACH;
+    if (careful) {
+      // Land in the gap after a dive: the mutant climbs away, then stalks a while before the next.
+      const mutant = enemies.mutants.find((m) => m.id === pilot.targetId);
+      const gap = !mutant || mutant.phase === 'recover' || (mutant.phase === 'stalk' && mutant.timer > SAFE_STALK);
+      const padDistance = Math.hypot(terrain.delta(craft.pos.x, pad.x), terrain.delta(craft.pos.z, pad.z));
+      if (pilot.landing || (gap && padDistance < LAND_NEAR)) {
+        pilot.landing = true;
+        return command(quickLanding(craft, terrain, physics), evading.fire, bomb, missile);
+      }
+      return command(evading.input, evading.fire, bomb, missile);
+    }
+    pilot.mode = 'evade';
+    return command(evading.input, evading.fire, bomb, missile);
+  }
+
   if (pilot.mode === 'refuel') {
     if (!onPad) return command(autopilotInput(craft, terrain, physics));
     if (craft.fuel < FULL * physics.maxFuel || none) return command(IDLE);
     pilot.mode = 'patrol';
-  }
-
-  // A mutant close by comes first: keep moving round it, shooting when it lines up.
-  const evading = evade(pilot, craft, enemies, terrain, physics, home);
-  pilot.run = evading ? pilot.run : null;
-  if (evading) {
-    pilot.mode = 'evade';
-    return command(evading.input, evading.fire);
   }
 
   const all = targets(enemies);
@@ -152,7 +243,7 @@ export function stepDemoPilot(
 
   const fromHome = (p: { x: number; z: number }) => Math.hypot(terrain.delta(home.x, p.x), terrain.delta(home.z, p.z));
   const fromCraft = (p: { x: number; z: number }) => Math.hypot(terrain.delta(craft.pos.x, p.x), terrain.delta(craft.pos.z, p.z));
-  const near = all.filter((t) => fromHome(t.pos) < LEASH);
+  const near = all.filter((t) => fromHome(t.pos) < reach.leash);
   // Bombers lay the most virus, so they are hunted first; otherwise the nearest, keeping the
   // current target. Pests come to the craft anyway, so they are only hunted when nothing else is
   // about; any pest that lines up is shot at whatever the pilot is doing.
@@ -162,12 +253,13 @@ export function stepDemoPilot(
   const pool = bombers.length > 0 ? bombers : others.length > 0 ? others : near;
   const swat = all.some((t) => isPest(t) && wouldHit(craft, t, terrain, physics));
   let target = pool.find((t) => t.id === pilot.targetId);
-  if (!target) target = pool.reduce<Target | undefined>((best, t) => (!best || fromCraft(t.pos) < fromCraft(best.pos) ? t : best), undefined);
+  const age = (t: Target) => enemies.seeders.find((s) => s.id === t.id)?.age ?? 0;
+  const cost = (t: Target) => fromCraft(t.pos) - reach.agePull * age(t);
+  if (!target) target = pool.reduce<Target | undefined>((best, t) => (!best || cost(t) < cost(best) ? t : best), undefined);
   pilot.targetId = target?.id ?? null;
   pilot.mode = target ? 'hunt' : 'patrol';
 
   const bomb = arsenal.bombs > 0 && all.filter((t) => fromCraft(t.pos) < weapons.bombRadius * BOMB_REACH).length >= BOMB_CROWD;
-  pilot.missileIn -= dt;
   let missile = false;
   if (target && arsenal.missiles > 0 && pilot.missileIn <= 0 && fromCraft(target.pos) > FIRE_RANGE + 3) {
     missile = true;
@@ -177,6 +269,22 @@ export function stepDemoPilot(
   if (!target) return command(patrol(pilot, craft, terrain, physics, home, dt), swat, bomb, missile);
   const { input, fire } = hunt(craft, target, terrain, physics);
   return command(input, fire || swat, bomb, missile);
+}
+
+/**
+ * Lands on the pad quickly: it closes on the pad's centre and comes down at the same time,
+ * rather than settling over it first as the autopilot does, while keeping inside the safe
+ * touchdown speeds. It is used in the gap between a mutant's dives.
+ */
+function quickLanding(craft: CraftState, terrain: Terrain, physics: Physics): CraftInput {
+  const pad = terrain.padCentre();
+  const dx = terrain.delta(craft.pos.x, pad.x);
+  const dz = terrain.delta(craft.pos.z, pad.z);
+  const d = Math.hypot(dx, dz) || 1;
+  const speed = Math.min(physics.safeLandingHSpeed * 0.6, d * 1.2);
+  const height = craft.pos.y - pad.y;
+  const sink = Math.min(physics.safeLandingVSpeed * 0.8, Math.max(0.5, height * 0.9));
+  return steer(craft, physics, (dx / d) * speed, -sink, (dz / d) * speed, LANDING_LEAN);
 }
 
 /** Drifts between random points near home, high enough to clear what lies on the way. */
@@ -204,13 +312,13 @@ function patrol(pilot: DemoPilot, craft: CraftState, terrain: Terrain, physics: 
  * The infected building near home the pilot should save: the nearest one it can reach and
  * hover over before it falls. Null if there is none.
  */
-function buildingToSave(craft: CraftState, terrain: Terrain, home: { x: number; z: number }): Building | null {
+function buildingToSave(craft: CraftState, terrain: Terrain, home: { x: number; z: number }, leash: number): Building | null {
   let best: Building | null = null;
   let bestDistance = Infinity;
   for (const b of terrain.buildings) {
     if (b.status !== 'infected') continue;
     const base = buildingBase(terrain, b);
-    if (Math.hypot(terrain.delta(home.x, base.x), terrain.delta(home.z, base.z)) > RESCUE_LEASH) continue;
+    if (Math.hypot(terrain.delta(home.x, base.x), terrain.delta(home.z, base.z)) > leash) continue;
     const distance = Math.hypot(terrain.delta(craft.pos.x, base.x), terrain.delta(craft.pos.z, base.z));
     if (b.timer < distance / RESCUE_SPEED + RESCUE_TIME - b.rescue + 0.5) continue;
     if (distance < bestDistance) {
@@ -257,7 +365,9 @@ function evade(
   terrain: Terrain,
   physics: Physics,
   home: { x: number; z: number },
-): { input: CraftInput; fire: boolean } | null {
+  runLeash: number,
+  counter = false,
+): { input: CraftInput; fire: boolean; distance: number } | null {
   let nearest: Target | undefined;
   let nearestDistance = EVADE_RANGE;
   for (const t of targets(enemies)) {
@@ -281,16 +391,25 @@ function evade(
     const d = Math.hypot(dx, dz) || 1;
     const side = -dz * hx + dx * hz >= 0 ? 1 : -1;
     pilot.run = { x: (-dz / d) * side, z: (dx / d) * side };
-  } else if (away > RUN_LEASH && pilot.run.x * hx + pilot.run.z * hz < 0) {
+  } else if (away > runLeash && pilot.run.x * hx + pilot.run.z * hz < 0) {
     // Heading away from home: turn back towards it, a little off the straight line.
     const angle = Math.atan2(hz, hx) + (pilot.rng() - 0.5);
     pilot.run = { x: Math.cos(angle), z: Math.sin(angle) };
+  }
+  // Between dives the mutant pulls out low and climbs away, and only dives again after a
+  // while: a window for a gun run at it, if it is close and not far above.
+  const mutant = enemies.mutants.find((m) => m.id === nearest!.id);
+  const window = mutant && (mutant.phase === 'recover' || (mutant.phase === 'stalk' && mutant.timer > COUNTER_STALK));
+  const horizontal = Math.hypot(terrain.delta(craft.pos.x, nearest.pos.x), terrain.delta(craft.pos.z, nearest.pos.z));
+  if (counter && window && horizontal < GUN_RANGE + 2 && Math.abs(nearest.pos.y - craft.pos.y) < COUNTER_HEIGHT) {
+    const run = hunt(craft, nearest, terrain, physics);
+    return { input: run.input, fire: run.fire, distance: nearestDistance };
   }
   const vx = pilot.run.x * EVADE_SPEED;
   const vz = pilot.run.z * EVADE_SPEED;
   const clear = highestObstacle(terrain, craft.pos.x, craft.pos.z, vx, vz, EVADE_SPEED) + CLEARANCE;
   const input = steer(craft, physics, vx, climb(craft, Math.max(clear, craft.pos.y)), vz, RUN_LEAN);
-  return { input, fire: wouldHit(craft, nearest, terrain, physics) };
+  return { input, fire: wouldHit(craft, nearest, terrain, physics), distance: nearestDistance };
 }
 
 /**

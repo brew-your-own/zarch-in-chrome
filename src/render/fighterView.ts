@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { EnemyState } from '../sim/enemies';
 import type { Fighter } from '../sim/fighters';
 import type { Terrain } from '../sim/terrain';
-import { HALF_WIDTH, ROWS_AHEAD, ROWS_BEHIND } from './terrainView';
+import { inPatch } from './terrainView';
 
 const CAPACITY = 32;
 const SHADOW_LIFT = 0.02;
@@ -121,7 +121,7 @@ export class FighterView {
     const dx = this.terrain.delta(focus.x, f.pos.x);
     const dz = this.terrain.delta(focus.z, f.pos.z);
     this.position.set(focus.x + dx, f.pos.y, focus.z + dz);
-    return Math.abs(dx) <= HALF_WIDTH && dz >= -ROWS_AHEAD && dz <= ROWS_BEHIND + 1;
+    return inPatch(dx, dz);
   }
 
   /** The dart's outline (nose and wingtips) dropped straight down onto the terrain. */

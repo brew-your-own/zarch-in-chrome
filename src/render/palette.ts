@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { valueNoise } from '../sim/noise';
 import { createRng } from '../sim/rng';
 import type { Terrain } from '../sim/terrain';
-import { TREE_PINE, tileHash, type TreeKind } from '../sim/trees';
+import { TREE_PALM, TREE_PINE, tileHash, type TreeKind } from '../sim/trees';
 
 /** Colour scheme knobs, all 0-1. Purely visual: nothing in the sim reads them. */
 export interface ColourSettings {
@@ -30,6 +30,8 @@ export const PAD = [new THREE.Color(0x9a9a9a), new THREE.Color(0xb4b4b4)];
 const LETTERING = new THREE.Color(0xf2e8c9);
 const SLAB = new THREE.Color(0x3b4250);
 export const PINE = new THREE.Color(0x24753a);
+/** Palm fronds stay green whatever the season. */
+export const PALM = new THREE.Color(0x3f9a2e);
 export const SUMMER_LEAVES = new THREE.Color(0x5aa83a);
 export const AUTUMN_LEAVES = [0xd9b52a, 0xe5862a, 0xd0502a, 0xa8321e].map((c) => new THREE.Color(c));
 /** The virus: a crimson-magenta kept clear of the brick-red autumn leaves. */
@@ -94,6 +96,7 @@ export class Palette {
   foliage(i: number, j: number, kind: TreeKind, out: THREE.Color): THREE.Color {
     if (this.terrain.isInfected(i, j)) return out.copy(VIRUS_LEAVES);
     if (kind === TREE_PINE) return out.copy(PINE);
+    if (kind === TREE_PALM) return out.copy(PALM);
     if (tileHash(this.terrain, i, j, 3) >= this.colours.autumn) return out.copy(SUMMER_LEAVES);
     return out.copy(AUTUMN_LEAVES[Math.floor(tileHash(this.terrain, i, j, 4) * AUTUMN_LEAVES.length)]!);
   }

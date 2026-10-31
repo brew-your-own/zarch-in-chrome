@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { TREE_PINE, TREE_ROUND } from '../sim/trees';
+import { TREE_PALM, TREE_PINE, TREE_ROUND } from '../sim/trees';
 import { buildingGeometry } from './buildingView';
 import { craftGeometry } from './craftView';
-import { AUTUMN_LEAVES, CHECKER_DARK, GRASS, PAD, PINE, SUMMER_LEAVES, VIRUS, VIRUS_LEAVES } from './palette';
+import { AUTUMN_LEAVES, CHECKER_DARK, GRASS, PAD, PALM, PINE, SUMMER_LEAVES, VIRUS, VIRUS_LEAVES } from './palette';
 import { treeGeometry } from './treeView';
 
 /**
@@ -61,7 +61,7 @@ export function padModel(): THREE.BufferGeometry {
   return mergeGeometries([ground(3, 3, () => PAD[1]!), place(craftGeometry().scale(1.6, 1.6, 1.6), 0, 0.1, 0, -0.5)])!;
 }
 
-/** Pines and round trees in summer and autumn colours, and one round tree taken by the virus. */
+/** Pines, a palm and round trees in summer and autumn colours, and one round tree taken by the virus. */
 export function treesModel(): THREE.BufferGeometry {
   const infected = (i: number, j: number) => i === 2 && j === 1;
   return mergeGeometries([
@@ -70,7 +70,7 @@ export function treesModel(): THREE.BufferGeometry {
     place(treeGeometry(TREE_ROUND, SUMMER_LEAVES), 0, 0, -0.5),
     place(treeGeometry(TREE_ROUND, AUTUMN_LEAVES[1]!), 1, 0, -0.5),
     place(treeGeometry(TREE_PINE, PINE), -1, 0, 0.5),
-    place(treeGeometry(TREE_PINE, PINE).scale(0.8, 0.8, 0.8), 0, 0, 0.5),
+    place(treeGeometry(TREE_PALM, PALM), 0, 0, 0.5),
     place(treeGeometry(TREE_ROUND, VIRUS_LEAVES), 1, 0, 0.5),
   ])!;
 }

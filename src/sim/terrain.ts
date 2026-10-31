@@ -207,6 +207,8 @@ export interface TerrainOptions {
   roughness?: number;
   /** How thickly forests grow, 0-1. 0 means no trees. */
   treeDensity?: number;
+  /** Share of the lowland round trees that are palms, 0-1. */
+  palms?: number;
   /** Villages to build (fewer if the land has no room). */
   villages?: number;
 }
@@ -219,7 +221,7 @@ const OCTAVE_CELLS = [16, 8, 4];
  * The same seed always produces the same terrain.
  */
 export function generateTerrain(seed: number, options: TerrainOptions = {}): Terrain {
-  const { size = 64, amplitude = 4, seaBias = 0.35, roughness = 0.5, treeDensity = 0.5, villages = 4 } = options;
+  const { size = 64, amplitude = 4, seaBias = 0.35, roughness = 0.5, treeDensity = 0.5, palms = 0.5, villages = 4 } = options;
   const rng = createRng(seed);
   const heights = new Float32Array(size * size);
   const octaves = OCTAVE_CELLS.map((cell, k) => ({ cell, weight: roughness ** k }));
@@ -246,7 +248,7 @@ export function generateTerrain(seed: number, options: TerrainOptions = {}): Ter
   }
 
   const terrain = new Terrain(size, heights, pad);
-  plantTrees(terrain, seed, treeDensity);
+  plantTrees(terrain, seed, treeDensity, palms);
   placeVillages(terrain, seed, villages);
   return terrain;
 }

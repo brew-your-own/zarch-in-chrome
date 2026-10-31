@@ -29,12 +29,14 @@ export interface TitleHandlers {
   onMapChange: (mapId: string) => void;
   /** The player switched between the mouse and trackpad schemes (already set in the settings). */
   onSchemeChange: () => void;
+  /** Starts Demo mode: a real game on the chosen map, flown by the computer. */
+  onDemo: () => void;
 }
 
 /**
  * The title screen's DOM, laid over the attract mode: the mouse or trackpad switch and that
- * scheme's controls, lit as the demo pilot uses them, the Fly, How to play, Settings and Guide
- * buttons, the best score and the map to play.
+ * scheme's controls, lit as the demo pilot uses them, the Fly, Demo, How to play, Settings and
+ * Guide buttons, the best score and the map to play.
  */
 export class TitleScreen {
   private readonly chips = new Map<ControlId, { node: HTMLElement; glow: number }>();
@@ -86,8 +88,11 @@ export class TitleScreen {
     guide.addEventListener('click', handlers.onGuide);
     const howTo = el('button', 'reset', 'How to play');
     howTo.addEventListener('click', handlers.onHowTo);
+    const demo = el('button', 'reset', 'Demo');
+    demo.title = 'Watch the computer play a real game on this map';
+    demo.addEventListener('click', handlers.onDemo);
     const buttons = el('div', 'title-buttons');
-    buttons.append(fly, howTo, settings, guide);
+    buttons.append(fly, demo, howTo, settings, guide);
 
     const step = (by: number) => {
       const k = MAPS.findIndex((m) => m.id === this.mapId());

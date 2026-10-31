@@ -1,12 +1,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { Terrain } from '../sim/terrain';
-import { TREE_NONE, TREE_PINE, TREE_ROUND, tileHash, treeBase, treeScale, type TreeKind } from '../sim/trees';
+import { TREE_NONE, TREE_PALM, TREE_PINE, TREE_ROUND, tileHash, treeBase, treeScale, type TreeKind } from '../sim/trees';
 import { SUN } from './lighting';
 import type { Palette } from './palette';
-import { HALF_WIDTH, ROWS_AHEAD, ROWS_BEHIND } from './terrainView';
+import { MAX_PATCH_TILES, patch } from './terrainView';
 
-const CAPACITY = (2 * HALF_WIDTH + 1) * (ROWS_AHEAD + ROWS_BEHIND + 1);
+const CAPACITY = MAX_PATCH_TILES;
 
 /**
  * Flat side-on outline of each kind as triangles of (u, v) points: u across, v up,
@@ -35,7 +35,24 @@ const ROUND_OUTLINE: Outline = (() => {
   return out;
 })();
 
-const MAX_OUTLINE = Math.max(PINE_OUTLINE.length, ROUND_OUTLINE.length);
+/** A palm's size: trunk segments, the top of the trunk, how far it leans, and its fronds' count and reach. */
+const PALM_SEGMENTS = 4;
+const PALM_TOP = 0.92;
+/** How far the trunk's top leans off its base. */
+const PALM_LEAN = 0.1;
+const PALM_FRONDS = 7;
+const PALM_REACH = 0.34;
+
+/** A palm's crown, seen side on: a fan of drooping fronds above the trunk. */
+const PALM_OUTLINE: Outline = (() => {
+  const out: Outline = trunk(0.04, PALM_TOP - 0.08);
+  const rim: [number, number][] = [[-PALM_REACH, PALM_TOP - 0.16], [-0.22, PALM_TOP + 0.04], [0, PALM_TOP + 0.08], [0.22, PALM_TOP + 0.04], [PALM_REACH, PALM_TOP - 0.16]];
+  for (let k = 0; k + 1 < rim.length; k++) out.push([PALM_LEAN, PALM_TOP - 0.08], rim[k]!, rim[k + 1]!);
+  return out;
+})();
+
+const OUTLINES = { [TREE_PINE]: PINE_OUTLINE, [TREE_ROUND]: ROUND_OUTLINE, [TREE_PALM]: PALM_OUTLINE };
+const MAX_OUTLINE = Math.max(...Object.values(OUTLINES).map((o) => o.length));
 const SHADOW_LIFT = 0.015;
 const SHADOW_OPACITY = 0.4;
 
@@ -45,6 +62,8 @@ const SUN_H = Math.hypot(SUN.x, SUN.z);
 const ACROSS = { x: -SUN.z / SUN_H, z: SUN.x / SUN_H };
 
 const TRUNK = 0x6b4a2b;
+const PALM_BARK = [0x8a6a42, 0x74583a];
+const COCONUT = 0x4a3420;
 
 /**
  * Low-poly part, built at the origin then moved into place and painted one colour.
@@ -58,6 +77,63 @@ function part(geometry: THREE.BufferGeometry, y: number, colour: number): THREE.
   for (let k = 0; k < colours.length; k += 3) colours.set([c.r, c.g, c.b], k);
   g.setAttribute('color', new THREE.BufferAttribute(colours, 3));
   g.deleteAttribute('uv');
+  return g;
+}
+
+/**
+ * A palm, matching TREE_SHAPES (1.1 tall with its fronds, 0.3 reach): a trunk of a few
+ * segments that leans a little more with each, and a crown of folded fronds drooping from
+ * its top. The fronds are drawn from both sides, being single sheets.
+ */
+
+function palmTrunk(): THREE.BufferGeometry {
+  const height = PALM_TOP / PALM_SEGMENTS;
+  const segments: THREE.BufferGeometry[] = [];
+  for (let k = 0; k < PALM_SEGMENTS; k++) {
+    const g = part(new THREE.CylinderGeometry(0.032, 0.042, height, 5), (k + 0.5) * height, PALM_BARK[k % 2]!);
+    // Each segment sits further over, so the trunk curves gently.
+    const t = (k + 0.5) / PALM_SEGMENTS;
+    g.rotateZ(-0.12 * t);
+    g.translate(PALM_LEAN * t * t, 0, 0);
+    segments.push(g);
+  }
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI * 2;
+    segments.push(part(new THREE.IcosahedronGeometry(0.035, 0), 0, COCONUT).translate(PALM_LEAN + Math.cos(a) * 0.04, PALM_TOP - 0.05, Math.sin(a) * 0.04));
+  }
+  return mergeGeometries(segments)!;
+}
+
+function palmCrown(): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const colours: number[] = [];
+  const top = new THREE.Vector3(PALM_LEAN, PALM_TOP, 0);
+  const tri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, grey: number) => {
+    // Both windings, so the frond shows from above and below.
+    for (const p of [a, b, c, a, c, b]) {
+      positions.push(p.x, p.y, p.z);
+      colours.push(grey, grey, grey);
+    }
+  };
+  for (let k = 0; k < PALM_FRONDS; k++) {
+    const a = (k / PALM_FRONDS) * Math.PI * 2 + 0.3;
+    const d = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+    const across = new THREE.Vector3(-d.z, 0, d.x);
+    // A frond rises from the top, folds along its rib and droops to its tip.
+    const reach = PALM_REACH * (0.85 + 0.15 * ((k * 5) % 3));
+    const mid = top.clone().addScaledVector(d, reach * 0.5).setY(PALM_TOP + 0.08);
+    const tip = top.clone().addScaledVector(d, reach).setY(PALM_TOP - 0.16);
+    const left = mid.clone().addScaledVector(across, 0.07).setY(PALM_TOP + 0.04);
+    const right = mid.clone().addScaledVector(across, -0.07).setY(PALM_TOP + 0.04);
+    tri(top, left, mid, 1);
+    tri(top, mid, right, 0.82);
+    tri(mid, left, tip, 0.92);
+    tri(mid, tip, right, 0.74);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
+  g.computeVertexNormals();
   return g;
 }
 
@@ -76,6 +152,7 @@ const GEOMETRY = {
     wood: () => part(new THREE.CylinderGeometry(0.04, 0.06, 0.4, 4), 0.2, TRUNK),
     foliage: () => part(new THREE.IcosahedronGeometry(0.28, 0), 0.57, 0xffffff),
   },
+  [TREE_PALM]: { wood: palmTrunk, foliage: palmCrown },
 };
 
 type Kind = Exclude<TreeKind, typeof TREE_NONE>;
@@ -120,7 +197,7 @@ export class TreeView {
       return mesh;
     };
     const build = (kind: Kind) => ({ wood: instanced(GEOMETRY[kind].wood()), foliage: instanced(GEOMETRY[kind].foliage()) });
-    this.byKind = { [TREE_PINE]: build(TREE_PINE), [TREE_ROUND]: build(TREE_ROUND) };
+    this.byKind = { [TREE_PINE]: build(TREE_PINE), [TREE_ROUND]: build(TREE_ROUND), [TREE_PALM]: build(TREE_PALM) };
     this.meshes = Object.values(this.byKind).flatMap(({ wood, foliage }) => [wood, foliage]);
 
     const shadowGeometry = new THREE.BufferGeometry();
@@ -151,8 +228,8 @@ export class TreeView {
     for (const mesh of this.meshes) mesh.count = 0;
     let shadowVerts = 0;
 
-    for (let j = cj - ROWS_AHEAD; j <= cj + ROWS_BEHIND; j++) {
-      for (let i = ci - HALF_WIDTH; i <= ci + HALF_WIDTH; i++) {
+    for (let j = cj - patch.ahead; j <= cj + patch.behind; j++) {
+      for (let i = ci - patch.halfWidth; i <= ci + patch.halfWidth; i++) {
         const kind = t.treeAt(i, j);
         if (kind === TREE_NONE) continue;
         const { wood, foliage } = this.byKind[kind];
@@ -167,7 +244,7 @@ export class TreeView {
         foliage.setColorAt(n, this.palette.foliage(i, j, kind, this.tint).multiplyScalar(shade));
         wood.count++;
         foliage.count++;
-        shadowVerts = this.castShadow(kind === TREE_PINE ? PINE_OUTLINE : ROUND_OUTLINE, base, s, shadowVerts);
+        shadowVerts = this.castShadow(OUTLINES[kind], base, s, shadowVerts);
       }
     }
 

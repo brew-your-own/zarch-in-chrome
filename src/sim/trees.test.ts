@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PHYSICS, spawnCraft, stepCraft, type CraftInput } from './craft';
 import { buildMap, MAPS } from './maps';
 import { generateTerrain, Terrain } from './terrain';
-import { hitsTree, plantTrees, TREE_NONE, TREE_PINE, TREE_ROUND, TREE_SHAPES, treeBase, treeScale } from './trees';
+import { hitsTree, plantTrees, TREE_NONE, TREE_PALM, TREE_PINE, TREE_ROUND, TREE_SHAPES, treeBase, treeScale } from './trees';
 
 const DT = 1 / 60;
 const IDLE: CraftInput = { aimX: 0, aimY: 0, thrust: false };
@@ -95,7 +95,7 @@ describe('plantTrees', () => {
     expect(generateTerrain(5, { treeDensity: 0 }).trees.every((k) => k === TREE_NONE)).toBe(true);
   });
 
-  it('only plants on land, away from the pad, with both kinds present', () => {
+  it('only plants on land, away from the pad, with every kind present', () => {
     for (const m of MAPS) {
       const t = buildMap(m);
       const kinds = new Set<number>();
@@ -108,8 +108,28 @@ describe('plantTrees', () => {
           for (let d = -1; d <= 1; d++) expect(t.isPadTile(i + d, j + d)).toBe(false);
         }
       }
-      expect(kinds).toEqual(new Set([TREE_PINE, TREE_ROUND]));
+      expect(kinds).toEqual(new Set([TREE_PINE, TREE_ROUND, TREE_PALM]));
     }
+  });
+
+  it('turns only lowland round trees into palms, leaving every other tree where it was', () => {
+    const t = generateTerrain(7, { palms: 0 });
+    const withPalms = generateTerrain(7, { palms: 1 });
+    let palms = 0;
+    for (let j = 0; j < t.size; j++) {
+      for (let i = 0; i < t.size; i++) {
+        const before = t.treeAt(i, j);
+        const after = withPalms.treeAt(i, j);
+        expect(before).not.toBe(TREE_PALM);
+        if (after === TREE_PALM) {
+          palms++;
+          expect(before).toBe(TREE_ROUND);
+        } else {
+          expect(after).toBe(before);
+        }
+      }
+    }
+    expect(palms).toBeGreaterThan(0);
   });
 
   it('leaves the spawn point clear', () => {

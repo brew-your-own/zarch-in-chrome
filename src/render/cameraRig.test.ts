@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { spawnCraft } from '../sim/craft';
 import { Terrain } from '../sim/terrain';
-import { CameraRig, DEFAULT_CAMERA, shakeAt, zoomFactor } from './cameraRig';
+import { CameraRig, DEFAULT_CAMERA, shakeAt, zoomFactor, type CameraSettings } from './cameraRig';
 import { waveHeight } from './terrainView';
 
 describe('camera rig', () => {
@@ -78,5 +78,30 @@ describe('waves', () => {
       expect(waveHeight(64, i + 64, j - 128, k * 0.37)).toBeCloseTo(h, 9);
     }
     expect(waveHeight(64, 5, 9, 1)).not.toBeCloseTo(waveHeight(64, 5, 9, 2), 3); // they move
+  });
+});
+
+describe('camera placement', () => {
+  const place = (settings: CameraSettings) => {
+    const camera = new THREE.PerspectiveCamera();
+    const rig = new CameraRig(camera, settings);
+    const craft = spawnCraft(Terrain.fromRows([[0, 0], [0, 0]], { i: 0, j: 0, w: 1, h: 1 }));
+    rig.snap(0);
+    rig.update({ x: 0, y: 0, z: 0 }, craft, 0, 1 / 60, 0);
+    return camera;
+  };
+
+  it('stands where it always has by default: 4.5 up, 7 back, pitched 0.55 rad down', () => {
+    const camera = place({ ...DEFAULT_CAMERA });
+    expect(camera.position.y).toBeCloseTo(4.5);
+    expect(camera.position.z).toBeCloseTo(7);
+    expect(camera.rotation.x).toBeCloseTo(-0.55);
+  });
+
+  it('keeps the craft framed the same way as it looks down more steeply', () => {
+    const steep = place({ ...DEFAULT_CAMERA, elevation: 1 });
+    expect(steep.position.y / steep.position.z).toBeCloseTo(Math.tan(1));
+    // The view runs the same small angle above the line to the craft.
+    expect(-steep.rotation.x).toBeCloseTo(1 - (DEFAULT_CAMERA.elevation - 0.55));
   });
 });

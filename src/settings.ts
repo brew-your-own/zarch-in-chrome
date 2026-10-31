@@ -2,6 +2,7 @@ import { DEFAULT_SOUND, type SoundSettings } from './audio/sound';
 import { DEFAULT_CONTROLS, type ControlSettings } from './input';
 import { DEFAULT_CAMERA, type CameraSettings } from './render/cameraRig';
 import { DEFAULT_SHIP, type ShipSettings } from './render/craftView';
+import { DEFAULT_DISPLAY, type DisplaySettings } from './ui/hud';
 import { DEFAULT_PLUME, type PlumeSettings } from './render/exhaustView';
 import { DEFAULT_COLOURS, type ColourSettings } from './render/palette';
 import { DEFAULT_AUTOPILOT, type AutopilotSettings } from './sim/autopilot';
@@ -12,7 +13,7 @@ import { DEFAULT_MAP_ID, findMap } from './sim/maps';
 
 /**
  * Everything the pause panel can change. The objects are mutated in place:
- * the sim, views and sound engine hold references to `physics`, `plume`, `colours`, `enemies`, `weapons`, `autopilot`, `camera`, `sound`, `controls` and `ship`.
+ * the sim, views and sound engine hold references to `physics`, `plume`, `colours`, `enemies`, `weapons`, `autopilot`, `camera`, `sound`, `controls`, `ship` and `display`.
  */
 export interface Settings {
   physics: Physics;
@@ -25,6 +26,7 @@ export interface Settings {
   sound: SoundSettings;
   controls: ControlSettings;
   ship: ShipSettings;
+  display: DisplaySettings;
   mapId: string;
 }
 
@@ -42,6 +44,7 @@ export function defaultSettings(): Settings {
     sound: { ...DEFAULT_SOUND },
     controls: { ...DEFAULT_CONTROLS },
     ship: { ...DEFAULT_SHIP },
+    display: { ...DEFAULT_DISPLAY },
     mapId: DEFAULT_MAP_ID,
   };
 }
@@ -76,6 +79,7 @@ export function loadSettings(): Settings {
     mergeValues(settings.sound, s.sound);
     mergeValues(settings.controls, s.controls);
     mergeValues(settings.ship, s.ship);
+    mergeValues(settings.display, s.display);
     if (typeof s.mapId === 'string') settings.mapId = findMap(s.mapId).id;
   } catch {
     // Corrupt or inaccessible storage: keep defaults.

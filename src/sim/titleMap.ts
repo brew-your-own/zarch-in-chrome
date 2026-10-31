@@ -61,7 +61,8 @@ function lit(x: number, y: number): boolean {
  * from the plinth and the ground just around it. A small village stands south-east of the pad.
  */
 export function buildTitleMap(): TitleMap {
-  const terrain = generateTerrain(SEED, { size: SIZE, amplitude: 3, seaBias: 0.3, treeDensity: 0.6, villages: 0 });
+  // Few palms: their crowns sit where the demo pilot fights, and block its shots.
+  const terrain = generateTerrain(SEED, { size: SIZE, amplitude: 3, seaBias: 0.3, treeDensity: 0.6, palms: 0.25, villages: 0 });
   const n = terrain.size;
   const letters = new Uint8Array(n * n);
   // The word sits centred on the pad's x, a few rows clear of the pad's north edge.

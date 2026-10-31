@@ -56,7 +56,7 @@ const LAND: Card[] = [
     size: 0.68,
     shadow: 0,
     pose: spin(0.35),
-    appears: 'Forests on every map, thickest in the hills. They turn crimson on infected land.',
+    appears: 'Forests on every map: pines in the hills, round trees and palms lower down, palms most of all by the sea. They turn crimson on infected land.',
     does: 'Solid: flying into one wrecks the craft, and they block shots, yours and the fighters\'.',
     beat: 'A bullet knocks a tree down, which clears a way out of a tight spot.',
   },

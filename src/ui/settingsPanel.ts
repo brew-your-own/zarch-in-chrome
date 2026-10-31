@@ -14,6 +14,7 @@ import type { Terrain } from '../sim/terrain';
 import type { Settings } from '../settings';
 import { controlsHelp } from './controls';
 import { githubLink } from './github';
+import { DEFAULT_DISPLAY } from './hud';
 
 const DEG = 180 / Math.PI;
 
@@ -98,6 +99,9 @@ const WEAPON_SLIDERS: SliderSpec<Settings['weapons']>[] = [
 ];
 
 const CAMERA_SLIDERS: SliderSpec<Settings['camera']>[] = [
+  { key: 'distance', label: 'Distance', min: 4, max: 20, step: 0.1, unit: 'u' },
+  { key: 'elevation', label: 'Looking down', min: 15, max: 75, step: 1, unit: '°', scale: DEG },
+  { key: 'range', label: 'Terrain drawn', min: 100, max: 300, step: 10, unit: '%', scale: 100 },
   { key: 'lean', label: 'Lean into turns', min: 0, max: 200, step: 10, unit: '%', scale: 100 },
   { key: 'shake', label: 'Explosion shake', min: 0, max: 200, step: 10, unit: '%', scale: 100 },
   { key: 'zoom', label: 'Zoom out with height', min: 0, max: 200, step: 10, unit: '%', scale: 100 },
@@ -130,6 +134,9 @@ export interface DebugAids {
 /** Where the panel was opened from: the title screen, or a game paused with Esc. */
 export type PanelContext = 'title' | 'paused';
 
+/** The drawer's tabs, in order. Debug only shows while paused. */
+export type PanelTab = 'map' | 'rules' | 'flight' | 'view' | 'sound' | 'debug';
+
 export interface SettingsPanelHandlers {
   /** Closes the panel opened from the title screen. */
   onBack: () => void;
@@ -158,8 +165,10 @@ function decimals(step: number): number {
 }
 
 /**
- * The settings screen, opened from the title or by pausing a game: map picker with minimap,
- * and sliders that edit the settings in place. While paused it resumes or quits the game.
+ * The settings drawer, opened from the title or by pausing a game. It slides in from the right
+ * and leaves the game in view, so camera, colour and craft changes show as you make them. Six
+ * tabs (Map, Rules, Flight, View, Sound and, while paused, Debug) hold sections that fold away;
+ * sliders edit the settings in place. While paused it resumes or quits the game.
  */
 export class SettingsPanel {
   private readonly status = el('p', 'status');
@@ -172,8 +181,12 @@ export class SettingsPanel {
   private readonly presetButtons = new Map<keyof typeof COLOUR_PRESETS, HTMLButtonElement>();
   private readonly primary = el('button', 'fly');
   private readonly quit = el('button', 'reset', 'Quit to title');
-  private readonly debugSection = el('section', 'debug');
   private readonly waveInput = el('input');
+  private readonly pages = new Map<PanelTab, { title: string; node: HTMLElement }>();
+  private readonly tabButtons = new Map<PanelTab, HTMLButtonElement>();
+  private tab: PanelTab = 'map';
+  /** Folds made so far on the page being built, so only the first starts open. */
+  private folds = 0;
   private context: PanelContext = 'title';
   private shown?: {
     terrain: Terrain;
@@ -188,15 +201,19 @@ export class SettingsPanel {
     debug: DebugAids,
     private readonly handlers: SettingsPanelHandlers,
   ) {
-    const panel = el('div', 'panel');
+    const drawer = el('div', 'drawer');
     const header = el('header');
     this.primary.addEventListener('click', () => (this.context === 'title' ? handlers.onBack() : handlers.onResume()));
     this.quit.addEventListener('click', handlers.onQuit);
     const guide = el('button', 'reset', 'Field guide');
     guide.addEventListener('click', handlers.onGuide);
-    header.append(el('h1', undefined, 'ZARCH'), this.status, guide, this.quit, this.primary, githubLink('panel-github'));
+    const top = el('div', 'drawer-title');
+    top.append(el('h1', undefined, 'ZARCH'), this.status, githubLink('panel-github'));
+    const buttons = el('div', 'drawer-buttons');
+    buttons.append(guide, this.quit, this.primary);
+    header.append(top, buttons);
 
-    const mapSection = el('section');
+    // Map: the minimap (the game while paused, the next game's map from the title) and the picker.
     this.minimap.width = this.minimap.height = 256;
     const cards = el('div', 'map-cards');
     for (const preset of MAPS) {
@@ -214,7 +231,63 @@ export class SettingsPanel {
       this.mapCards.set(preset.id, card);
       cards.append(card);
     }
-    mapSection.append(el('h2', undefined, 'Map'), this.minimap, cards);
+    const mapNote = el('p', 'note');
+    this.refreshers.push(() => {
+      mapNote.textContent = this.context === 'paused' ? 'Picking another map starts a new game there.' : 'The map for the next game.';
+    });
+    this.page('map', 'Map', this.minimap, mapNote, cards);
+
+    // Rules: what the game throws at you, and what you fight back with.
+    const game = this.fold('Game', GAME_SLIDERS.map((spec) => this.slider(settings.enemies, spec)));
+    game.append(el('p', 'note', 'Lives apply from the next game. Each wave after the first is harder by the ramp, up to the cap. Hover low over an infected building to save it; 0% buildings lost never ends the game.'));
+    const enemies = this.fold('Enemies', ENEMY_SLIDERS.map((spec) => this.slider(settings.enemies, spec)));
+    enemies.append(el('p', 'note', 'A seeder left alive too long mutates and dives at you (0 turns it off). Bombers lay the virus in lines and take three hits.'));
+    const weapons = this.fold('Weapons', WEAPON_SLIDERS.map((spec) => this.slider(settings.weapons, spec)));
+    weapons.append(el('p', 'note', 'Smart bombs are handed out each wave and don\'t carry over; missiles build up (up to 9). New stock amounts apply from the next wave.'));
+    this.page('rules', 'Rules', game, enemies, weapons);
+
+    // Flight: how the craft handles, and how you fly it.
+    const physics = this.fold('Physics', PHYSICS_SLIDERS.map((spec) => this.slider(settings.physics, spec)));
+    physics.append(this.ratio);
+    const cannon = this.fold('Cannon', CANNON_SLIDERS.map((spec) => this.slider(settings.physics, spec)));
+    const assists = this.fold('Assists', [
+      this.toggle(settings.autopilot, 'enabled', 'Auto-refuel [R]', 'Once per wave, flies you back to the pad and lands.'),
+    ]);
+    const controls = this.fold('Controls', [
+      this.toggle(settings.controls, 'trackpad', 'Trackpad', 'Swipe to tilt; Space thrusts, F fires, C levels out, Q is the smart bomb.'),
+      ...POINTER_SLIDERS.map((spec) => this.slider(settings.controls, spec)),
+    ]);
+    controls.append(el('p', 'note', 'Made for a mouse, like the original. Pointer speed is how far a movement tilts the craft; a trackpad may want more.'), this.help);
+    const keyboard = this.fold('Keyboard flying', CONTROL_SLIDERS.map((spec) => this.slider(settings.controls, spec)));
+    keyboard.append(el('p', 'note', 'Mouse scheme only. A/D or ←/→ turn the nose, W or ↑ leans along it, S or ↓ brakes; J or Shift thrusts, K fires. Forward lean is how far W tips the craft, as a share of full tilt; lean speed is how quickly it gets there and back to level.'));
+    this.page('flight', 'Flight', physics, cannon, assists, controls, keyboard);
+
+    // View: everything you see, tuned while the game stays in sight beside the drawer.
+    const camera = this.fold('Camera', [
+      ...CAMERA_SLIDERS.map((spec) => this.slider(settings.camera, spec)),
+      this.toggle(settings.display, 'fps', 'Show FPS', 'The frame rate, at the bottom of the HUD.'),
+    ]);
+    camera.append(el('p', 'note', 'Distance and looking down place the camera behind the craft. Terrain drawn shows more land around it, which costs frame rate.'));
+    const craft = this.fold('Craft', [
+      this.toggle(settings.ship, 'original', 'Original ship', "Lander's own green and teal paint, as Braben stored it in 1987. Off: the same hull in the game's colours."),
+    ]);
+    const presets = el('div', 'presets');
+    for (const [id, preset] of Object.entries(COLOUR_PRESETS) as [keyof typeof COLOUR_PRESETS, (typeof COLOUR_PRESETS)[keyof typeof COLOUR_PRESETS]][]) {
+      const button = el('button', 'preset', preset.name);
+      button.addEventListener('click', () => {
+        Object.assign(settings.colours, preset.colours);
+        this.refresh();
+        handlers.onChange();
+      });
+      this.presetButtons.set(id, button);
+      presets.append(button);
+    }
+    const colours = this.fold('Colours', [presets, ...COLOUR_SLIDERS.map((spec) => this.slider(settings.colours, spec))]);
+    const plume = this.fold('Thruster plume', PLUME_SLIDERS.map((spec) => this.slider(settings.plume, spec)));
+    this.page('view', 'View', camera, craft, colours, plume);
+
+    const sound = SOUND_SLIDERS.map((spec) => this.slider(settings.sound, spec));
+    this.page('sound', 'Sound', ...sound, el('p', 'note', 'The alarm sounds when a seeder comes within this distance, louder as it closes in. 0 turns it off.'));
 
     // Debug, only while paused in a game: jump to any wave to try out later enemies.
     this.waveInput.type = 'number';
@@ -233,62 +306,16 @@ export class SettingsPanel {
     });
     const row = el('label', 'debug-row');
     row.append(el('span', undefined, 'Jump to wave'), this.waveInput, jump);
-    this.debugSection.append(
-      el('h2', undefined, 'Debug'),
+    this.page(
+      'debug',
+      'Debug',
       row,
       el('p', 'note', 'Clears the enemies and starts that wave as you resume. The land, buildings and score stay as they are.'),
       this.toggle(debug, 'invulnerable', 'Invulnerable', 'Nothing wrecks the craft: enemies, shots, trees, hard landings.', false),
       this.toggle(debug, 'infiniteFuel', 'Infinite fuel', 'The tank stays full, whatever burns it or bites it.', false),
       el('p', 'note', 'These aren\'t saved, and a game that uses any of them doesn\'t count for the best score.'),
     );
-    mapSection.append(this.debugSection);
 
-    const tuning = el('section');
-    tuning.append(el('h2', undefined, 'Physics'));
-    for (const spec of PHYSICS_SLIDERS) tuning.append(this.slider(settings.physics, spec));
-    tuning.append(this.ratio, el('h2', undefined, 'Cannon'));
-    for (const spec of CANNON_SLIDERS) tuning.append(this.slider(settings.physics, spec));
-    tuning.append(el('h2', undefined, 'Game'));
-    for (const spec of GAME_SLIDERS) tuning.append(this.slider(settings.enemies, spec));
-    tuning.append(el('p', 'note', 'Lives apply from the next game. Each wave after the first is harder by the ramp, up to the cap. Hover low over an infected building to save it; 0% buildings lost never ends the game.'));
-    tuning.append(el('h2', undefined, 'Enemies'));
-    for (const spec of ENEMY_SLIDERS) tuning.append(this.slider(settings.enemies, spec));
-    tuning.append(el('p', 'note', 'A seeder left alive too long mutates and dives at you (0 turns it off). Bombers lay the virus in lines and take three hits.'));
-    tuning.append(el('h2', undefined, 'Weapons'));
-    for (const spec of WEAPON_SLIDERS) tuning.append(this.slider(settings.weapons, spec));
-    tuning.append(el('p', 'note', 'Smart bombs are handed out each wave and don\'t carry over; missiles build up (up to 9). New stock amounts apply from the next wave.'));
-    tuning.append(el('h2', undefined, 'Assists'));
-    tuning.append(this.toggle(settings.autopilot, 'enabled', 'Auto-refuel [R]', 'Once per wave, flies you back to the pad and lands.'));
-    tuning.append(el('h2', undefined, 'Controls'));
-    tuning.append(this.toggle(settings.controls, 'trackpad', 'Trackpad', 'Swipe to tilt; Space thrusts, F fires, C levels out, Q is the smart bomb.'));
-    for (const spec of POINTER_SLIDERS) tuning.append(this.slider(settings.controls, spec));
-    tuning.append(el('p', 'note', 'Made for a mouse, like the original. Pointer speed is how far a movement tilts the craft; a trackpad may want more.'));
-    tuning.append(el('h2', undefined, 'Keyboard flying'));
-    for (const spec of CONTROL_SLIDERS) tuning.append(this.slider(settings.controls, spec));
-    tuning.append(el('p', 'note', 'Mouse scheme only. A/D or ←/→ turn the nose, W or ↑ leans along it, S or ↓ brakes; J or Shift thrusts, K fires. Forward lean is how far W tips the craft, as a share of full tilt; lean speed is how quickly it gets there and back to level.'));
-    tuning.append(el('h2', undefined, 'Craft'));
-    tuning.append(this.toggle(settings.ship, 'original', 'Original ship', "Lander's own green and teal paint, as Braben stored it in 1987. Off: the same hull in the game's colours."));
-    tuning.append(el('h2', undefined, 'Thruster plume'));
-    for (const spec of PLUME_SLIDERS) tuning.append(this.slider(settings.plume, spec));
-    tuning.append(el('h2', undefined, 'Camera'));
-    for (const spec of CAMERA_SLIDERS) tuning.append(this.slider(settings.camera, spec));
-    tuning.append(el('h2', undefined, 'Colours'));
-    const presets = el('div', 'presets');
-    for (const [id, preset] of Object.entries(COLOUR_PRESETS) as [keyof typeof COLOUR_PRESETS, (typeof COLOUR_PRESETS)[keyof typeof COLOUR_PRESETS]][]) {
-      const button = el('button', 'preset', preset.name);
-      button.addEventListener('click', () => {
-        Object.assign(settings.colours, preset.colours);
-        this.refresh();
-        handlers.onChange();
-      });
-      this.presetButtons.set(id, button);
-      presets.append(button);
-    }
-    tuning.append(presets);
-    for (const spec of COLOUR_SLIDERS) tuning.append(this.slider(settings.colours, spec));
-    tuning.append(el('h2', undefined, 'Sound'));
-    for (const spec of SOUND_SLIDERS) tuning.append(this.slider(settings.sound, spec));
-    tuning.append(el('p', 'note', 'The alarm sounds when a seeder comes within this distance, louder as it closes in. 0 turns it off.'));
     const reset = el('button', 'reset', 'Reset to defaults');
     reset.addEventListener('click', () => {
       Object.assign(settings.physics, DEFAULT_PHYSICS);
@@ -301,21 +328,70 @@ export class SettingsPanel {
       Object.assign(settings.sound, DEFAULT_SOUND);
       Object.assign(settings.controls, DEFAULT_CONTROLS);
       Object.assign(settings.ship, DEFAULT_SHIP);
+      Object.assign(settings.display, DEFAULT_DISPLAY);
       this.refresh();
       handlers.onChange();
     });
-    tuning.append(reset);
+    const footer = el('footer');
+    footer.append(reset, el('span', 'note', 'Every tab, not the map.'));
 
-    const columns = el('div', 'columns');
-    columns.append(mapSection, tuning);
-    panel.append(
-      header,
-      columns,
-      this.help,
-    );
-    root.append(panel);
+    const tabs = el('nav', 'drawer-tabs');
+    for (const [id, page] of this.pages) {
+      const button = el('button', undefined, page.title);
+      button.addEventListener('click', () => this.selectTab(id));
+      this.tabButtons.set(id, button);
+      tabs.append(button);
+    }
+    const body = el('div', 'drawer-body');
+    body.append(...[...this.pages.values()].map((p) => p.node));
+    drawer.append(header, tabs, body, footer);
+    root.append(drawer);
+    this.selectTab(this.tab);
     this.highlightMap();
     this.refresh();
+  }
+
+  /** A tab's page, holding `children`. */
+  private page(id: PanelTab, title: string, ...children: HTMLElement[]): void {
+    const node = el('section', 'drawer-page');
+    node.append(...children);
+    this.pages.set(id, { title, node });
+    this.folds = 0;
+  }
+
+  /**
+   * A section that folds away, with its first values summed up on the closed header. The first
+   * fold on each page starts open; the others remember how they were left.
+   */
+  private fold(title: string, children: HTMLElement[]): HTMLDetailsElement {
+    const fold = el('details', 'fold');
+    const summary = el('summary');
+    const glance = el('span', 'glance');
+    summary.append(el('span', 'fold-title', title), glance);
+    fold.append(summary, ...children);
+    fold.open = children.length > 0 && this.folds++ === 0;
+    this.refreshers.push(() => {
+      const bits: string[] = [];
+      for (const row of fold.querySelectorAll('.slider, .toggle')) {
+        if (bits.length === 3) break;
+        const name = row.querySelector('.name')?.textContent?.toLowerCase() ?? '';
+        const box = row.querySelector<HTMLInputElement>('input[type=checkbox]');
+        const value = box ? (box.checked ? 'on' : 'off') : (row.querySelector('.value')?.textContent ?? '');
+        bits.push(`${name} ${value}`);
+      }
+      glance.textContent = bits.join(' · ');
+    });
+    return fold;
+  }
+
+  private selectTab(tab: PanelTab): void {
+    if (tab === 'debug' && this.context !== 'paused') tab = 'map';
+    this.tab = tab;
+    for (const [id, page] of this.pages) page.node.classList.toggle('hidden', id !== tab);
+    for (const [id, button] of this.tabButtons) {
+      button.classList.toggle('selected', id === tab);
+      button.classList.toggle('hidden', id === 'debug' && this.context !== 'paused');
+    }
   }
 
   /**
@@ -332,7 +408,6 @@ export class SettingsPanel {
     wave = 0,
   ): void {
     this.context = context;
-    this.debugSection.classList.toggle('hidden', context !== 'paused');
     this.waveInput.value = String(wave + 1);
     this.status.textContent = context === 'paused' ? 'PAUSED' : 'Settings';
     this.primary.textContent = context === 'paused' ? 'RESUME ▸' : '◂ BACK';
@@ -343,7 +418,8 @@ export class SettingsPanel {
       marker: craftPos && { x: craftPos.x, z: craftPos.z },
       enemies: enemies.map((e) => ({ x: e.pos.x, z: e.pos.z })),
     };
-    this.drawMaps();
+    this.selectTab(this.tab);
+    this.refresh();
     this.highlightMap();
     this.root.classList.remove('hidden');
   }
@@ -387,7 +463,6 @@ export class SettingsPanel {
     this.help.textContent = controlsHelp(this.settings.controls);
   }
 
-  /** A checkbox bound to a boolean setting, with a short explanation beside it. */
   /** A checkbox for a boolean in `target`; `save` says whether a change is saved with the settings. */
   private toggle<T extends object>(target: T, key: keyof T & string, label: string, hint: string, save = true): HTMLElement {
     const row = el('label', 'toggle');

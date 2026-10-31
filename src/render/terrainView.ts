@@ -3,13 +3,33 @@ import type { Terrain } from '../sim/terrain';
 import { SUN } from './lighting';
 import type { Palette } from './palette';
 
-/** Tiles drawn around the craft. The camera looks north (-z), so more rows lie ahead. */
-export const HALF_WIDTH = 12;
-export const ROWS_AHEAD = 18;
-export const ROWS_BEHIND = 6;
+/** Tiles drawn around the craft at a view range of 1. The camera looks north (-z), so more rows lie ahead. */
+export const BASE_PATCH = Object.freeze({ halfWidth: 12, ahead: 18, behind: 6 });
+/** The largest view range, which the views size their buffers for. */
+export const MAX_RANGE = 3;
 
-const COLS = 2 * HALF_WIDTH + 1;
-const ROWS = ROWS_AHEAD + ROWS_BEHIND + 1;
+/**
+ * The patch drawn now, shared by every view that draws per tile or culls to the patch.
+ * `setViewRange` scales it from `BASE_PATCH` (`settings.camera.range`).
+ */
+export const patch: { halfWidth: number; ahead: number; behind: number } = { ...BASE_PATCH };
+
+export function setViewRange(range: number): void {
+  const r = Math.max(1, Math.min(MAX_RANGE, range));
+  patch.halfWidth = Math.round(BASE_PATCH.halfWidth * r);
+  patch.ahead = Math.round(BASE_PATCH.ahead * r);
+  patch.behind = Math.round(BASE_PATCH.behind * r);
+}
+
+/** Most tiles a patch can hold, at `MAX_RANGE`. */
+export const MAX_PATCH_TILES =
+  (2 * Math.round(BASE_PATCH.halfWidth * MAX_RANGE) + 1) * (Math.round(BASE_PATCH.ahead * MAX_RANGE) + Math.round(BASE_PATCH.behind * MAX_RANGE) + 1);
+
+/** Whether a point (dx, dz) from the patch centre lies in the drawn patch (with a row's margin behind). */
+export function inPatch(dx: number, dz: number): boolean {
+  return Math.abs(dx) <= patch.halfWidth && dz >= -patch.ahead && dz <= patch.behind + 1;
+}
+
 const VERTS_PER_TILE = 6;
 
 const AMBIENT = 0.45;
@@ -50,7 +70,7 @@ export class TerrainView {
     private readonly terrain: Terrain,
     private readonly palette: Palette,
   ) {
-    const count = COLS * ROWS * VERTS_PER_TILE;
+    const count = MAX_PATCH_TILES * VERTS_PER_TILE;
     this.positions = new Float32Array(count * 3);
     this.colors = new Float32Array(count * 3);
     this.geometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3).setUsage(THREE.DynamicDrawUsage));
@@ -101,8 +121,8 @@ export class TerrainView {
       return t.vertexHeight(i, j) + (open ? waveHeight(n, i, j, time) : 0);
     };
 
-    for (let j = cj - ROWS_AHEAD; j <= cj + ROWS_BEHIND; j++) {
-      for (let i = ci - HALF_WIDTH; i <= ci + HALF_WIDTH; i++) {
+    for (let j = cj - patch.ahead; j <= cj + patch.behind; j++) {
+      for (let i = ci - patch.halfWidth; i <= ci + patch.halfWidth; i++) {
         const h00 = height(i, j);
         const h10 = height(i + 1, j);
         const h01 = height(i, j + 1);
@@ -124,6 +144,7 @@ export class TerrainView {
       }
     }
 
+    this.geometry.setDrawRange(0, v);
     this.geometry.attributes.position!.needsUpdate = true;
     this.geometry.attributes.color!.needsUpdate = true;
   }

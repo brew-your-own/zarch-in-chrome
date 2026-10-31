@@ -3,7 +3,7 @@ import { BUILDING_SHAPES, buildingBase, RESCUE_TIME, type Building, type Buildin
 import type { Terrain } from '../sim/terrain';
 import { SUN } from './lighting';
 import { VIRUS } from './palette';
-import { HALF_WIDTH, ROWS_AHEAD, ROWS_BEHIND } from './terrainView';
+import { patch } from './terrainView';
 
 const CAPACITY = 64;
 /** Walls reach this far below the base, so a building on a slope never shows a gap. */
@@ -166,8 +166,8 @@ export class BuildingView {
     const cj = Math.floor(centreZ);
     for (const mesh of this.meshes) mesh.count = 0;
     let shadowVerts = 0;
-    for (let j = cj - ROWS_AHEAD; j <= cj + ROWS_BEHIND; j++) {
-      for (let i = ci - HALF_WIDTH; i <= ci + HALF_WIDTH; i++) {
+    for (let j = cj - patch.ahead; j <= cj + patch.behind; j++) {
+      for (let i = ci - patch.halfWidth; i <= ci + patch.halfWidth; i++) {
         const b = this.terrain.buildingAt(i, j);
         if (!b) continue;
         const kind = b.status === 'ruin' ? 'ruin' : b.kind;

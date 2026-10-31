@@ -3,7 +3,7 @@ import type { EnemyState, Seeder } from '../sim/enemies';
 import type { Mutant } from '../sim/mutants';
 import type { Terrain } from '../sim/terrain';
 import { VIRUS } from './palette';
-import { HALF_WIDTH, ROWS_AHEAD, ROWS_BEHIND } from './terrainView';
+import { inPatch } from './terrainView';
 
 const CAPACITY = 64;
 const SPIN = 2.5; // rad/s
@@ -170,7 +170,7 @@ export class SeederView {
     const dx = this.terrain.delta(focus.x, pos.x);
     const dz = this.terrain.delta(focus.z, pos.z);
     out.set(focus.x + dx, pos.y, focus.z + dz);
-    return Math.abs(dx) <= HALF_WIDTH && dz >= -ROWS_AHEAD && dz <= ROWS_BEHIND + 1;
+    return inPatch(dx, dz);
   }
 
   /** A diamond footprint under the seeder, turning with it, draped on the terrain. */

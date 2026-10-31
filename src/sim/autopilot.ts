@@ -22,7 +22,7 @@ export interface AutopilotSettings {
 export const DEFAULT_AUTOPILOT: Readonly<AutopilotSettings> = Object.freeze({ enabled: true });
 
 /** Top cruise speed towards the pad (units/s). */
-const CRUISE_SPEED = 4;
+export const CRUISE_SPEED = 4;
 /** Height kept above the highest ground or treetop on the way. */
 export const CLEARANCE = 1.2;
 /** How far ahead along the route the clearance looks (units). */

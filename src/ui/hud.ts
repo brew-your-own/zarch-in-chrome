@@ -34,6 +34,14 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, pa
 }
 
 /** The head-up display: fuel bar, flight readouts, score, wave, infection and a pad compass. */
+/** What the HUD shows besides the game's readouts. */
+export interface DisplaySettings {
+  /** Show the frame rate. */
+  fps: boolean;
+}
+
+export const DEFAULT_DISPLAY: DisplaySettings = { fps: false };
+
 export class Hud {
   private readonly fuelFill: HTMLDivElement;
   private readonly fuelText: HTMLSpanElement;
@@ -48,6 +56,7 @@ export class Hud {
   private readonly auto: HTMLSpanElement;
   private readonly status: HTMLDivElement;
   private readonly banner: HTMLDivElement;
+  private readonly fpsRow: HTMLDivElement;
   private shownWave = 0;
   /** Seconds left showing a pest's bite, and the fuel it took. */
   private bitFor = 0;
@@ -80,7 +89,15 @@ export class Hud {
     el('span', 'hud-label', auto).textContent = 'AUTO';
     this.auto = el('span', 'hud-auto', auto);
     this.status = el('div', 'hud-status', root);
+    this.fpsRow = el('div', 'hud-row hud-fps', root);
+    this.fpsRow.hidden = true;
     this.banner = el('div', 'wave-banner', bannerParent);
+  }
+
+  /** Shows the frame rate, or hides the row with null. */
+  fps(rate: number | null): void {
+    this.fpsRow.hidden = rate === null;
+    if (rate !== null) this.fpsRow.textContent = `FPS ${Math.round(rate)}`;
   }
 
   /** A pest bit the craft, taking `fuel`: flashes the fuel bar and says so on the status line. */

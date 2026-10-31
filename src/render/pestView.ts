@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { EnemyState } from '../sim/enemies';
 import type { Pest } from '../sim/pests';
 import type { Terrain } from '../sim/terrain';
-import { HALF_WIDTH, ROWS_AHEAD, ROWS_BEHIND } from './terrainView';
+import { inPatch } from './terrainView';
 
 const CAPACITY = 48;
 const SHADOW_LIFT = 0.02;
@@ -118,7 +118,7 @@ export class PestView {
     const dx = this.terrain.delta(focus.x, p.pos.x);
     const dz = this.terrain.delta(focus.z, p.pos.z);
     this.position.set(focus.x + dx, p.pos.y, focus.z + dz);
-    return Math.abs(dx) <= HALF_WIDTH && dz >= -ROWS_AHEAD && dz <= ROWS_BEHIND + 1;
+    return inPatch(dx, dz);
   }
 
   /** A small diamond on the ground straight below `this.position`. */

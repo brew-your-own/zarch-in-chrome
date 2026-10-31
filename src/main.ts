@@ -15,13 +15,13 @@ import { SUN } from './render/lighting';
 import { Palette } from './render/palette';
 import { SeederView } from './render/seederView';
 import { SkyView } from './render/skyView';
-import { TerrainView } from './render/terrainView';
+import { BASE_PATCH, patch as drawnPatch, setViewRange, TerrainView } from './render/terrainView';
 import { TreeView } from './render/treeView';
 import { loadSettings, saveSettings } from './settings';
 import { createAutopilot, stepAutopilot, toggleAutopilot } from './sim/autopilot';
 import { createCannon, stepCannon } from './sim/cannon';
 import { spawnCraft, stepCraft } from './sim/craft';
-import { createDemoPilot, DEMO_ENEMIES, stepDemoPilot } from './sim/demoPilot';
+import { createDemoPilot, DEMO_ENEMIES, GAME_REACH, stepDemoPilot } from './sim/demoPilot';
 import { buildingBase } from './sim/buildings';
 import { buildingsLost, createEnemies, enemyCount, isOverrun, jumpToWave, nearestEnemyDistance, stepEnemies, targets, type EnemyEvent } from './sim/enemies';
 import { buildMap, findMap } from './sim/maps';
@@ -97,6 +97,9 @@ const TITLE_PATCH_SOUTH = 5;
 const TITLE_FOCUS_RATE = 1.2;
 /** Controls the demo pilot used during this frame's sim steps, for the title screen to light. */
 let demoSignals: ControlSignals = {};
+/** The frame rate shown in the HUD, smoothed over about `1 / FPS_SMOOTHING` seconds. */
+const FPS_SMOOTHING = 2;
+let fps = 60;
 /** Simulated seconds, frozen while paused; drives the seeders' spin. */
 let simTime = 0;
 /**
@@ -105,6 +108,16 @@ let simTime = 0;
  */
 const debug: DebugAids = { invulnerable: false, infiniteFuel: false };
 let debugUsed = false;
+/**
+ * Demo mode: a real game on the chosen map, flown by the demo pilot (`GAME_REACH`), with no
+ * pointer lock. Esc pauses it with the settings panel (`autoPaused`). It never counts for the
+ * best score.
+ */
+let autoplay = false;
+let autoPaused = false;
+const demoBadge = document.querySelector<HTMLDivElement>('#demo-badge')!;
+/** Whether a game is running now: the player's with the pointer locked, or the demo unpaused. */
+const live = () => mode === 'game' && !gameOver && (input.locked || (autoplay && !autoPaused));
 /** Seconds of unpaused play, for cosmetic motion such as the waves. */
 let waveTime = 0;
 /** Seconds until another small splash may sound, so a shower of shards doesn't stack up. */
@@ -249,8 +262,21 @@ function newTitleWorld() {
   titleScreen.showLost(false);
 }
 
+function pauseDemo() {
+  autoPaused = true;
+  showPanel();
+}
+
+function resumeDemo() {
+  autoPaused = false;
+  panel.hide();
+  guide.hide();
+}
+
 /** Leaves any game for the title screen. */
 function enterTitle() {
+  autoplay = false;
+  demoBadge.classList.add('hidden');
   newTitleWorld();
   if (input.locked) document.exitPointerLock();
   rig.frame(TITLE_PULL);
@@ -265,12 +291,25 @@ function enterTitle() {
 
 /** Starts a game on the chosen map; the camera swoops down from the title view. */
 function startGame() {
+  autoplay = false;
   newGame(settings.mapId);
   rig.frame(1);
   titleScreen.hide();
   hudColumn.classList.remove('hidden');
   sound.resume(); // a click: browsers only allow audio to start from a user gesture
   input.requestLock();
+}
+
+/** Starts Demo mode on the chosen map: a real game, flown by the demo pilot. */
+function startDemo() {
+  autoplay = true;
+  newGame(settings.mapId);
+  rig.frame(1);
+  titleScreen.hide();
+  howTo.hide();
+  guide.hide();
+  hudColumn.classList.remove('hidden');
+  sound.resume(); // a click: browsers only allow audio to start from a user gesture
 }
 
 /** Fresh world on `mapId`: terrain (trees regrown, no infection), craft, cannon and enemies. */
@@ -288,6 +327,12 @@ function newGame(mapId: string) {
   resetMotion();
   gameOver = null;
   debugUsed = false;
+  autoPaused = false;
+  if (autoplay) {
+    Object.assign(demo, newDemo());
+    debugUsed = true; // the pilot's score isn't the player's
+  }
+  demoBadge.classList.toggle('hidden', !autoplay);
 }
 
 function endGame(reason: GameOverStats['reason']) {
@@ -346,7 +391,8 @@ const panel = new SettingsPanel(overlay, settings, debug, {
   onBack: closeTitleSettings,
   onResume: () => {
     sound.resume(); // a click: browsers only allow audio to start from a user gesture
-    input.requestLock();
+    if (autoplay) resumeDemo();
+    else input.requestLock();
   },
   onQuit: enterTitle,
   onChange: () => saveSettings(settings),
@@ -373,7 +419,7 @@ const gameOverScreen = new GameOverScreen(document.querySelector<HTMLDivElement>
     newGame(settings.mapId);
     sound.resume();
     gameOverScreen.hide();
-    input.requestLock();
+    if (!autoplay) input.requestLock();
   },
   onTitle: enterTitle,
 });
@@ -388,6 +434,7 @@ const titleScreen = new TitleScreen(document.querySelector<HTMLDivElement>('#tit
     saveSettings(settings);
   },
   onSchemeChange: () => saveSettings(settings),
+  onDemo: startDemo,
 });
 
 // R engages auto-refuel (once per wave), or hands control back if it is flying.
@@ -399,6 +446,11 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && guide.visible) closeGuide();
   else if (e.code === 'Escape' && howTo.visible) closeHowTo();
   else if (e.code === 'Escape' && panel.visible && panel.openedFrom === 'title') closeTitleSettings();
+  // Demo mode has no pointer lock to release, so Esc pauses it, and closes the pause again.
+  else if (e.code === 'Escape' && autoplay && mode === 'game' && !gameOver) {
+    if (panel.visible) resumeDemo();
+    else pauseDemo();
+  }
   if (e.repeat || !input.locked || gameOver || mode !== 'game') return;
   if (e.code === 'KeyR') {
     const wasActive = autopilot.active;
@@ -587,7 +639,7 @@ function distanceFromCraft(pos: { x: number; z: number }): number {
 
 /** Proximity alarm level (0-1) for the nearest seeder; silent while paused, over or wrecked. */
 function proximityAlert(): number {
-  if (mode !== 'game' || !input.locked || gameOver || craft.status === 'crashed') return 0;
+  if (!live() || craft.status === 'crashed') return 0;
   return proximityLevel(nearestEnemyDistance(enemies, craft.pos, terrain), settings.sound.alertDistance);
 }
 
@@ -596,7 +648,7 @@ function proximityAlert(): number {
  * as the virus spreads, as an enemy closes in (the proximity alarm level) and on the last life.
  */
 function musicIntensity(alert: number): number {
-  if (mode !== 'game' || !input.locked || gameOver) return 0;
+  if (!live()) return 0;
   const virus = Math.min(1, terrain.infectedFraction() / Math.max(0.01, settings.enemies.overrunAt));
   const enemiesAbout = enemyCount(enemies) > 0 ? 0.15 : 0;
   return 0.2 + enemiesAbout + 0.35 * virus + 0.4 * alert + (lives === 1 ? 0.1 : 0);
@@ -605,7 +657,7 @@ function musicIntensity(alert: number): number {
 /** Continuous and per-shot sounds for this frame (explosions play from the sim events). */
 function playSounds(alert: number, dt: number) {
   sound.update();
-  const playing = mode === 'game' && input.locked && !gameOver;
+  const playing = live();
   sound.music(musicIntensity(alert), !playing, dt);
   sound.thruster(playing && craft.thrusting);
   sound.proximity(alert);
@@ -620,7 +672,7 @@ function frame(now: number) {
   last = now;
 
   // The title screen's demo never pauses; a game runs while the pointer is locked.
-  const running = mode === 'title' || (input.locked && !gameOver);
+  const running = mode === 'title' || live();
   demoSignals = {};
   if (running) {
     accumulator += elapsed;
@@ -629,8 +681,11 @@ function frame(now: number) {
       const wasCrashed = craft.status === 'crashed';
       simTime += STEP;
       let fire: boolean;
-      if (title) {
-        const command = stepDemoPilot(demo, craft, enemies, arsenal, terrain, physics, settings.weapons, title.centre, STEP);
+      if (title || autoplay) {
+        // The title guards its lettering; Demo mode plays the whole map from the pad.
+        const command = title
+          ? stepDemoPilot(demo, craft, enemies, arsenal, terrain, physics, settings.weapons, title.centre, STEP)
+          : stepDemoPilot(demo, craft, enemies, arsenal, terrain, physics, settings.weapons, terrain.padCentre(), STEP, GAME_REACH);
         stepCraft(craft, command.input, terrain, STEP, physics);
         fire = command.fire;
         bombRequested = command.bomb;
@@ -738,7 +793,9 @@ function frame(now: number) {
   const groundY = terrain.heightAt(focus.x, focus.z);
   rig.update(focus, craft, groundY, elapsed, effectsDt);
 
-  skyView.update(camera, focus.x, groundY, elapsed, rig.extraReach);
+  setViewRange(settings.camera.range);
+  // A wider patch reaches further ahead, so the fog moves out to its new edge.
+  skyView.update(camera, focus.x, groundY, elapsed, rig.extraReach + (drawnPatch.ahead - BASE_PATCH.ahead));
   waveTime += effectsDt;
   terrainView.update(patch.x, patch.z, waveTime);
   treeView.update(patch.x, patch.z);
@@ -767,6 +824,8 @@ function frame(now: number) {
   } else {
     hud.update(craft, physics, enemies, settings.enemies, terrain, autopilot, settings.autopilot, alert, lives, arsenal, effectsDt);
     scanner.update(terrain, palette, craft, enemies, settings.sound.alertDistance, alert, elapsed);
+    if (elapsed > 0) fps += (1 / elapsed - fps) * Math.min(1, elapsed * FPS_SMOOTHING);
+    hud.fps(settings.display.fps ? fps : null);
   }
   const showAim = !title && settings.controls.trackpad && input.locked && !gameOver;
   aimGauge.classList.toggle('hidden', !showAim);

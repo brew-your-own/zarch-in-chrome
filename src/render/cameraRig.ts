@@ -1,9 +1,18 @@
 import * as THREE from 'three';
 import type { CraftState } from '../sim/craft';
 
-/** Camera feel, edited live from the settings panel. Each is a multiplier: 0 off, 1 default. */
+/** Camera placement and feel, edited live from the settings panel. */
 export interface CameraSettings {
-  /** Roll with the craft's sideways tilt. */
+  /** How far the camera stands from the craft, in world units. */
+  distance: number;
+  /** How steeply it looks down at the craft (radians above the horizontal). */
+  elevation: number;
+  /**
+   * How much terrain is drawn, as a multiple of the usual patch (`viewRange`). More shows
+   * further ahead and to the sides, and costs frame rate.
+   */
+  range: number;
+  /** The rest are multipliers: 0 off, 1 default. Roll with the craft's sideways tilt. */
   lean: number;
   /** Shake on explosions. */
   shake: number;
@@ -11,11 +20,23 @@ export interface CameraSettings {
   zoom: number;
 }
 
-export const DEFAULT_CAMERA: Readonly<CameraSettings> = Object.freeze({ lean: 1, shake: 1, zoom: 1 });
+export const DEFAULT_CAMERA: Readonly<CameraSettings> = Object.freeze({
+  distance: Math.hypot(4.5, 7),
+  elevation: Math.atan2(4.5, 7),
+  range: 1,
+  lean: 1,
+  shake: 1,
+  zoom: 1,
+});
 
-/** Behind (south of) and above the craft, always looking north. */
-const OFFSET = new THREE.Vector3(0, 4.5, 7);
-const PITCH = -0.55;
+/**
+ * The camera stands behind (south of) and above the craft, always looking north, at
+ * `distance` and `elevation` from the settings. It looks this much less steeply than the line
+ * to the craft, so the craft sits a little below the middle of the screen.
+ */
+const AIM_ABOVE = Math.atan2(4.5, 7) - 0.55;
+/** How far behind the craft the camera stands by default; the fog is tuned for it. */
+const BASE_BACK = 7;
 /** How quickly the camera height follows the craft's (1/s). */
 const FOLLOW_Y = 3;
 /** Roll (radians) at full sideways tilt, and how quickly it eases there (1/s). */
@@ -80,9 +101,15 @@ export class CameraRig {
     if (now) this.pull = pull;
   }
 
-  /** How much further back (horizontally) than usual `frame` has put the camera right now. */
+  /** How much further back (horizontally) than the default the camera stands right now, from `frame` and the settings. */
   get extraReach(): number {
-    return (this.pull - 1) * OFFSET.z;
+    return this.pull * this.offset().z - BASE_BACK;
+  }
+
+  /** The offset from the craft at the usual framing, from the settings. */
+  private offset(): { y: number; z: number } {
+    const { distance, elevation } = this.settings;
+    return { y: distance * Math.sin(elevation), z: distance * Math.cos(elevation) };
   }
 
   /** Adds shake for an explosion of `strength` (0-1) `distance` tiles from the craft. */
@@ -108,11 +135,12 @@ export class CameraRig {
     const wobble = (a: number, b: number, phase: number) => (Math.sin(t * a + phase) + Math.sin(t * b + phase * 2.3)) / 2;
 
     const zoom = zoomFactor(this.altitude, this.settings.zoom) * this.pull;
+    const offset = this.offset();
     this.camera.position.set(
-      pos.x + OFFSET.x * zoom + wobble(37, 53, 0.4) * SHAKE_OFFSET * s,
-      this.y + OFFSET.y * zoom + wobble(41, 59, 1.7) * SHAKE_OFFSET * s,
-      pos.z + OFFSET.z * zoom + wobble(31, 47, 2.9) * SHAKE_OFFSET * s * 0.5,
+      pos.x + wobble(37, 53, 0.4) * SHAKE_OFFSET * s,
+      this.y + offset.y * zoom + wobble(41, 59, 1.7) * SHAKE_OFFSET * s,
+      pos.z + offset.z * zoom + wobble(31, 47, 2.9) * SHAKE_OFFSET * s * 0.5,
     );
-    this.camera.rotation.set(PITCH, 0, this.roll + wobble(29, 43, 4.1) * SHAKE_ROLL * s);
+    this.camera.rotation.set(-(this.settings.elevation - AIM_ABOVE), 0, this.roll + wobble(29, 43, 4.1) * SHAKE_ROLL * s);
   }
 }

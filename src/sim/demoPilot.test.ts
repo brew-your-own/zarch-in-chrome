@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { createCannon, stepCannon } from './cannon';
 import { DEFAULT_PHYSICS, spawnCraft, stepCraft, type CraftState } from './craft';
-import { createDemoPilot, DEMO_ENEMIES, stepDemoPilot, wouldHit, type DemoMode } from './demoPilot';
-import { createEnemies, SEEDER_RADIUS, stepEnemies, type EnemyEvent, type Target } from './enemies';
+import { createDemoPilot, DEMO_ENEMIES, GAME_REACH, stepDemoPilot, wouldHit, type DemoMode } from './demoPilot';
+import { buildingsLost, createEnemies, DEFAULT_ENEMIES, isOverrun, SEEDER_RADIUS, stepEnemies, type EnemyEvent, type Target } from './enemies';
+import { buildMap, MAPS } from './maps';
 import { buildVillage, stepBuildings } from './buildings';
 import { Terrain } from './terrain';
 import { buildTitleMap, lettersInfected } from './titleMap';
@@ -160,5 +161,43 @@ describe('wouldHit', () => {
     const c = craft();
     c.pos.z = 1;
     expect(wouldHit(c, seeder(16, 3, 29), terrain, DEFAULT_PHYSICS)).toBe(true);
+  });
+});
+
+describe('demo pilot in Demo mode', () => {
+  /** Plays a real game on `map` with the default rules until it is lost or `seconds` pass. */
+  function play(map: (typeof MAPS)[number], seed: number, seconds: number) {
+    const terrain = buildMap(map);
+    const physics = { ...DEFAULT_PHYSICS };
+    const craft = spawnCraft(terrain, physics);
+    const cannon = createCannon();
+    const enemies = createEnemies(seed);
+    const arsenal = createArsenal();
+    const pilot = createDemoPilot(seed);
+    const home = terrain.padCentre();
+    let crashes = 0;
+    for (let step = 0; step < seconds / DT; step++) {
+      const command = stepDemoPilot(pilot, craft, enemies, arsenal, terrain, physics, DEFAULT_WEAPONS, home, DT, GAME_REACH);
+      const wasCrashed = craft.status === 'crashed';
+      stepCraft(craft, command.input, terrain, DT, physics);
+      stepCannon(cannon, craft, command.fire, terrain, DT, physics);
+      for (const e of stepEnemies(enemies, craft, cannon.bullets, terrain, DT, DEFAULT_ENEMIES, physics)) {
+        if (e.type === 'waveStarted') restock(arsenal, e.wave, DEFAULT_WEAPONS);
+      }
+      if (command.bomb) detonateBomb(arsenal, craft, enemies, terrain, DEFAULT_WEAPONS);
+      if (command.missile) fireMissile(arsenal, craft, enemies, terrain, physics);
+      stepMissiles(arsenal, enemies, terrain, DT, DEFAULT_WEAPONS);
+      if (!wasCrashed && craft.status === 'crashed') crashes++;
+      if (crashes >= DEFAULT_ENEMIES.lives || isOverrun(terrain, DEFAULT_ENEMIES) || buildingsLost(terrain, DEFAULT_ENEMIES)) break;
+    }
+    return enemies;
+  }
+
+  it('plays a whole map from the pad, and gets past the first wave on every map', () => {
+    for (const map of MAPS) {
+      const enemies = play(map, 1, 240);
+      expect(enemies.score).toBeGreaterThan(0);
+      expect(enemies.wave).toBeGreaterThanOrEqual(2);
+    }
   });
 });

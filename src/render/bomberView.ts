@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Bomber } from '../sim/bombers';
 import type { EnemyState } from '../sim/enemies';
 import type { Terrain } from '../sim/terrain';
-import { HALF_WIDTH, ROWS_AHEAD, ROWS_BEHIND } from './terrainView';
+import { inPatch } from './terrainView';
 
 const CAPACITY = 16;
 const SHADOW_LIFT = 0.02;
@@ -117,7 +117,7 @@ export class BomberView {
     const dx = this.terrain.delta(focus.x, b.pos.x);
     const dz = this.terrain.delta(focus.z, b.pos.z);
     this.position.set(focus.x + dx, b.pos.y, focus.z + dz);
-    return Math.abs(dx) <= HALF_WIDTH && dz >= -ROWS_AHEAD && dz <= ROWS_BEHIND + 1;
+    return inPatch(dx, dz);
   }
 
   /** The wing's outline (nose, tips and tail notch) dropped straight down onto the terrain. */

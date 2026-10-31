@@ -5,13 +5,19 @@ import type { Terrain } from './terrain';
 export const TREE_NONE = 0;
 export const TREE_PINE = 1;
 export const TREE_ROUND = 2;
-export type TreeKind = typeof TREE_NONE | typeof TREE_PINE | typeof TREE_ROUND;
+export const TREE_PALM = 3;
+export type TreeKind = typeof TREE_NONE | typeof TREE_PINE | typeof TREE_ROUND | typeof TREE_PALM;
 
 /** Collision cylinder of a tree at scale 1, from its base. Renderers size their meshes to match. */
 export const TREE_SHAPES = {
   [TREE_PINE]: { height: 1.1, radius: 0.2 },
   [TREE_ROUND]: { height: 0.85, radius: 0.28 },
+  // A tall trunk under a wide crown of fronds; the cylinder is the crown's reach.
+  [TREE_PALM]: { height: 1.1, radius: 0.3 },
 } as const;
+
+/** Salt for the per-tile hash that turns lowland round trees into palms. */
+const PALM_SALT = 11;
 
 /** Each tree lives at the centre of its tile. */
 export function treeBase(terrain: Terrain, i: number, j: number): { x: number; y: number; z: number } {
@@ -72,11 +78,13 @@ const smoothstep = (a: number, b: number, t: number) => {
 
 /**
  * Seeds forests over the land: a coarse noise layer decides where woods are, `density`
- * (0-1) how thick they get. Pines favour high ground, round trees the lowlands.
+ * (0-1) how thick they get. Pines favour high ground, round trees the lowlands, and up to
+ * `palms` (0-1) of the round trees on low ground are palms instead, fewer higher up. Palms are
+ * picked by `tileHash`, not the random stream, so they never move the other trees.
  * The pad and the ring of tiles around it stay clear. Uses its own random stream,
  * so tree placement never changes the heights generated from the same seed.
  */
-export function plantTrees(terrain: Terrain, seed: number, density: number): void {
+export function plantTrees(terrain: Terrain, seed: number, density: number, palms = 0): void {
   const n = terrain.size;
   const rng = createRng(seed ^ 0x5eed7ee5);
   const forest = valueNoise(rng, n, 8);
@@ -91,7 +99,9 @@ export function plantTrees(terrain: Terrain, seed: number, density: number): voi
       const pick = rng();
       if (grow >= density * smoothstep(0.4, 0.7, forest[j * n + i]!)) continue;
       const altitude = treeBase(terrain, i, j).y / maxHeight;
-      terrain.setTree(i, j, pick < 0.15 + 0.75 * altitude ? TREE_PINE : TREE_ROUND);
+      if (pick < 0.15 + 0.75 * altitude) terrain.setTree(i, j, TREE_PINE);
+      else if (tileHash(terrain, i, j, PALM_SALT) < palms * (1 - smoothstep(0.2, 0.55, altitude))) terrain.setTree(i, j, TREE_PALM);
+      else terrain.setTree(i, j, TREE_ROUND);
     }
   }
 }
