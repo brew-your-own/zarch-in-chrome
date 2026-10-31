@@ -19,7 +19,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # Full history and tags, so the About tab can name the tag a build is on.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 26

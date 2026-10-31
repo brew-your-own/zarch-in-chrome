@@ -135,6 +135,16 @@ html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
 .drawer .slider input { grid-column: 1 / -1; grid-row: 2; margin: 0; }
 .drawer .toggle { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; margin: 8px 0; }
 .drawer .toggle .hint { grid-column: 2; font-size: 11px; }
+.about { line-height: 1.5; }
+.about h3 { margin: 14px 0 6px; font-size: 13px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--accent); font-weight: normal; }
+.about h3:first-child { margin-top: 4px; }
+.about p { margin: 0 0 8px; }
+.about ul, .about ol { margin: 0 0 8px; padding-left: 18px; }
+.about li { margin: 2px 0; }
+.about a { color: var(--accent); }
+.about sup { font-size: 10px; margin-left: 1px; }
+.about-version { color: var(--muted); border-top: 1px solid var(--line); padding-top: 8px; }
+.about-sources { color: var(--muted); font-size: 11px; }
 .drawer .help { margin: 8px 0 0; text-align: left; font-size: 11px; }
 
 .minimap, .map-card canvas { display: block; image-rendering: pixelated; border: 1px solid var(--line); }

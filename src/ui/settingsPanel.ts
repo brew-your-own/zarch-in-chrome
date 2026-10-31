@@ -14,6 +14,7 @@ import type { Terrain } from '../sim/terrain';
 import type { Settings } from '../settings';
 import { controlsHelp } from './controls';
 import { githubLink } from './github';
+import { aboutPage } from './about';
 import { DEFAULT_DISPLAY } from './hud';
 
 const DEG = 180 / Math.PI;
@@ -135,7 +136,7 @@ export interface DebugAids {
 export type PanelContext = 'title' | 'paused';
 
 /** The drawer's tabs, in order. Debug only shows while paused. */
-export type PanelTab = 'map' | 'rules' | 'flight' | 'view' | 'sound' | 'debug';
+export type PanelTab = 'map' | 'rules' | 'flight' | 'view' | 'sound' | 'debug' | 'about';
 
 export interface SettingsPanelHandlers {
   /** Closes the panel opened from the title screen. */
@@ -166,8 +167,8 @@ function decimals(step: number): number {
 
 /**
  * The settings drawer, opened from the title or by pausing a game. It slides in from the right
- * and leaves the game in view, so camera, colour and craft changes show as you make them. Six
- * tabs (Map, Rules, Flight, View, Sound and, while paused, Debug) hold sections that fold away;
+ * and leaves the game in view, so camera, colour and craft changes show as you make them. Seven
+ * tabs (Map, Rules, Flight, View, Sound, Debug while paused, and About) hold sections that fold away;
  * sliders edit the settings in place. While paused it resumes or quits the game.
  */
 export class SettingsPanel {
@@ -315,6 +316,8 @@ export class SettingsPanel {
       this.toggle(debug, 'infiniteFuel', 'Infinite fuel', 'The tank stays full, whatever burns it or bites it.', false),
       el('p', 'note', 'These aren\'t saved, and a game that uses any of them doesn\'t count for the best score.'),
     );
+
+    this.page('about', 'About', ...aboutPage());
 
     const reset = el('button', 'reset', 'Reset to defaults');
     reset.addEventListener('click', () => {
